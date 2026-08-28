@@ -1,0 +1,55 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+spring:
+  application:
+    name: item-service
+  profiles:
+    active: local
+  datasource:
+    url: jdbc:mysql://${hw.db.sql.host}:3306/photo_system?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: ${hw.db.sql.pw}
+  data:
+    redis:
+      host: ${hw.db.redis.host}
+      port: 6379
+      password: ${hw.db.redis.pw} # 如果有密码的话
+mybatis:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    mapUnderscoreToCamelCase: true # 开启驼峰命名自动映射
+  mapper-locations: classpath:com.hw.manage.Mapper/*.xml
+logging:
+  level:
+    com.hw: debug
+  pattern:
+    dateformat: HH:mm:ss:SSS
+  file:
+    path: "logs/${spring.application.name}"
+knife4j:
+  enable: true
+  openapi:
+    title: 图库管理系统接口文档
+    description: "图库管理系系统接口文档"
+    version: v1.0.0
+    group:
+      default:
+        group-name: default
+        api-rule: package
+        api-rule-resources:
+          - com.hw.manage.controller
+# 统一管理文件上传相关的配置
+file:
+  # 1. 定义外部可访问的URL前缀（例如：http://localhost:8080/images/）
+  access-path: /images/
+
+  # 2. 定义图片存储的真实物理路径
+  # 推荐使用绝对路径，末尾不带斜杠。
+  # 这样可以方便地在 Spring Boot 或其他框架中配置静态资源映射。
+  # Windows 示例: D:/web/uploads/images
+  # Linux/Mac 示例: /var/www/uploads/images
+  upload-dir: D:/web/uploads/images

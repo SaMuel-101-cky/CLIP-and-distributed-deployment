@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.hw.manage.Mapper.PhotosMapper">
+   <insert id="addAll" >
+    insert into description(content,create_time,update_time,user_id,idNum)
+    values(
+    <foreach collection="descriptionList" item="description" separator=",">
+        (#{description.content},#{description.createTime},#{description.updateTime},#{description.userId},#{description.idNum})
+    </foreach>
+    )
+    </insert>
+    <select id="listPhotos" parameterType="Integer"  resultType="String">
+        select image from photo where id in
+        (select photo_id from description join photo_description on description.id = photo_description.description_id
+        <where>
+            user_id = #{userId}
+        </where>
+        )
+    </select>
+    <select id="findMaxIdNum" parameterType="String"  resultType="Integer">
+        select max(idNum) from description where user_id in
+        (select id from users where username = #{username}) ;
+    </select>
+</mapper>

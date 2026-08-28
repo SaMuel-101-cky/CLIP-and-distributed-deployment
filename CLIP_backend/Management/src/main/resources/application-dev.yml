@@ -1,0 +1,9 @@
+#开发环境
+hw:
+  db:
+   sql:
+    host:
+    pw:
+   red:
+     host:
+     pw:

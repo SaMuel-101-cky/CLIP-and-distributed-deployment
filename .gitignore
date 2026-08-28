@@ -1,0 +1,39 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Java / Maven
+target/
+*.class
+*.jar
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+
+# 密钥与日志
+.env
+logs/
+*.log
+
+# 模型权重
+*.pt
+*.pth
+
+# 系统 / 前端
+.DS_Store
+Thumbs.db
+node_modules/
+
+#AI 工具
+CLAUDE.md
+AGENT.md
+
+#与代码无关的文件
+*.docx
+photo_resources/test/
+!photo_resources/.gitkeep
