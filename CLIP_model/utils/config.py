@@ -9,6 +9,11 @@ BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://localhost:8080")
 AI_CALLBACK_TOKEN = os.getenv("AI_CALLBACK_TOKEN")
 TEXT_SEARCH_TOP_K = int(os.getenv("TEXT_SEARCH_TOP_K", 5))
 CLIP_SMOKE_MODE = os.getenv("CLIP_SMOKE_MODE", "false").lower() == "true"
+VECTOR_STORE_ENABLED = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
+CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data")
+CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "clip_image_embeddings")
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "clip-vit-l-14")
+VECTOR_SEARCH_FALLBACK = os.getenv("VECTOR_SEARCH_FALLBACK", "true").lower() == "true"
 
 
 # TODO: 后续可扩展为逐层粒度的卸载控制。

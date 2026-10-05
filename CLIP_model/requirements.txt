@@ -20,6 +20,7 @@ brotlicffi @ file:///C:/b/abs_f4lixvzmxt/croot/brotlicffi_1736183286104/work
 certifi @ file:///C:/miniconda3/conda-bld/certifi_1759786076112/work/certifi
 cffi @ file:///C:/miniconda3/conda-bld/cffi_1760098052251/work
 charset-normalizer @ file:///croot/charset-normalizer_1721748349566/work
+chromadb>=0.5,<1.0
 click==8.4.1
 colorama==0.4.6
 comm==0.2.3
