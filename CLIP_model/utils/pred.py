@@ -37,13 +37,8 @@ def read_image_from_path(path: str):
     return img
 
 
-def predict(model, image_paths: List[str], class_names: List[str]):
+def preprocess_images(image_paths: List[str], device: torch.device):
     cv2 = _cv2()
-    from model import clip_loader as m
-
-    device = get_model_device(model)
-    prompts = ['a photo of a ' + class_name for class_name in class_names]
-    tokenized_prompts = m.tokenize(prompts).to(device)
 
     imgs = []
     for path in image_paths:
@@ -53,7 +48,16 @@ def predict(model, image_paths: List[str], class_names: List[str]):
         img = transform(img)  # [C, H, W]
         imgs.append(img)
 
-    imgs = torch.stack(imgs).to(device)  # [B, C, H, W]
+    return torch.stack(imgs).to(device)  # [B, C, H, W]
+
+
+def predict(model, image_paths: List[str], class_names: List[str]):
+    from model import clip_loader as m
+
+    device = get_model_device(model)
+    prompts = ['a photo of a ' + class_name for class_name in class_names]
+    tokenized_prompts = m.tokenize(prompts).to(device)
+    imgs = preprocess_images(image_paths, device)
 
 
     with torch.no_grad():
