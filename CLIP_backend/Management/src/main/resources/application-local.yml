@@ -1,8 +1,5 @@
 hw:
  db:
   sql:
-    host: 192.168.100.129 # 修改为你自己的虚拟机IP地址
-    pw: 520Luoyuhao # 修改为MySQL密码
-  redis:
-    host: 192.168.100.129  # 修改为你自己的虚拟机IP地址
-    pw: 520Luoyuhao # 修改为Redis密码
+    host: ${MYSQL_HOST:127.0.0.1}
+    pw: ${MYSQL_PASSWORD:}

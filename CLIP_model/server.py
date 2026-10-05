@@ -11,7 +11,6 @@ from model.clip_loader import build_model
 from utils import config
 from utils.setup import get_device_and_ip,configure_logger
 from utils.pred import predict
-import manager.db_manager as db
 from utils import config as cfg
 
 from utils.speed_measurement import run_timed_inference

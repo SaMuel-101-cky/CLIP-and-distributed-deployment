@@ -5,20 +5,22 @@ import com.hw.pojo.entity.User;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 @Mapper
 public interface UserMapper {
     @Delete("delete from users where username=#{username}")
-    public void delete(String name) ;
+    public void delete(@Param("username") String username) ;
 
 
-    @Select("select * from users where username=#{username}")
+    @Select("SELECT * FROM users WHERE username = #{username}")
     public User findByUsername(String username);
     //向数据库中插入注册的信息
-    @Insert("insert into users(username,password,phone_num,create_time,update_time,name) values(#{username},#{password},#{phoneNum},#{createTime},#{updateTime},#{name})")
+    @Insert("INSERT INTO users(username, password_hash, phone_num, name) " +
+            "VALUES(#{username}, #{passwordHash}, #{phoneNum}, #{name})")
     public void add(User user);
-    @Select("select * from users where Id=#{id}")
-    public User findById(int id);
+    @Select("SELECT * FROM users WHERE id = #{id}")
+    public User findById(Long id);
 
 }

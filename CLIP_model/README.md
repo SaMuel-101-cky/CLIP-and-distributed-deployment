@@ -18,10 +18,11 @@
 ```mermaid
 graph TB
     User([🌐 用户请求]) --> Client
-    Client[<b>client.py</b><br/>业务 API 服务器<br/>Flask + 部分本地推理] --> MySQL[<b>MySQL</b><br/>photo_system<br/>图片-描述匹配库]
+    Backend[<b>Java Backend</b><br/>用户 API / MySQL / 文件元数据] -->|HTTP POST<br/>任务 payload| Client
+    Client[<b>client.py</b><br/>CLIP 推理服务<br/>Flask + 部分本地推理] -->|HTTP callback<br/>匹配结果| Backend
     Client -->|HTTP POST<br/>tensor 序列化/base64| Server[<b>server.py</b><br/>模型推理服务器<br/>持有全量 CLIP 模型组件]
     Server -->|JSON<br/>计算结果| Client
-    Client -->|JSON 响应| User
+    Backend -->|JSON 响应| User
 ```
 
 ### CLIP 模型组件拆分
@@ -64,11 +65,11 @@ graph LR
 
 ### 模式 A：单机部署
 
-所有推理在本地完成，**仅需 1 台机器 + 1 个 MySQL**。
+所有推理在模型服务本地完成，Java 后端仍负责 MySQL 持久化。
 
 ```mermaid
 graph LR
-    MySQL[(<b>MySQL</b><br/>数据库)] <--> Client[<b>client.py</b><br/>Flask API<br/>全量模型本地推理<br/>所有 OFFLOAD_*=false]
+    Backend[<b>Java Backend</b><br/>MySQL + 任务状态] <-->|HTTP| Client[<b>client.py</b><br/>Flask API<br/>全量模型本地推理<br/>所有 OFFLOAD_*=false]
 ```
 
 适用场景：开发调试、单机演示、低延迟需求。
@@ -79,7 +80,7 @@ graph LR
 
 ```mermaid
 graph LR
-    MySQL[(<b>MySQL</b><br/>数据库)] <--> Client[<b>机器 2：client.py</b><br/>业务逻辑 + 部分本地推理]
+    Backend[<b>Java Backend</b><br/>MySQL + 任务状态] <-->|HTTP| Client[<b>机器 2：client.py</b><br/>业务逻辑 + 部分本地推理]
     Client <-->|HTTP / base64| Server[<b>机器 1：server.py</b><br/>全量模型组件<br/>GPU 推理]
 ```
 
@@ -124,7 +125,8 @@ CLIP_local/
 │   ├── speed_measurement.py  # 统一推理测速 + CUDA 同步
 │   └── setup.py              # 日志 & 设备初始化
 ├── manager/
-│   └── db_manager.py         # MySQL 连接池
+│   ├── ai_task_payload.py    # Java 任务 payload 校验与归一化
+│   └── backend_client.py     # 回写 Java 后端 AI 结果
 ├── ViT-L-14.pt               # 模型权重（~890MB，需 git LFS）
 ├── requirements.txt          # Python 依赖
 ├── .env.example              # 环境变量模板
@@ -139,7 +141,7 @@ CLIP_local/
 
 - Python 3.10+
 - CUDA 11.8+（GPU 推理推荐）
-- MySQL 8.0+（数据库）
+- Java 后端服务（负责数据库与任务状态）
 
 ```bash
 pip install -r requirements.txt
@@ -156,13 +158,13 @@ git lfs pull
 
 > 也可从 [OpenAI CLIP](https://github.com/openai/CLIP) 手动下载 ViT-L-14 权重文件放入项目根目录。
 
-### 3. 数据库
+### 3. 后端数据库
 
 ```sql
 CREATE DATABASE photo_system CHARACTER SET utf8mb4;
 ```
 
-系统需要 `photos` 和 `photo_description` 两张表（由数据库初始化脚本维护）。
+系统不直接写业务数据库；图片列表由 Java 后端传入，模型端完成推理后通过后端接口回写 `photo_description_matches` 结果。完整表结构由 `CLIP_backend/schema.sql` 维护。
 
 ### 4. 环境变量配置
 
@@ -176,11 +178,10 @@ cp .env.example .env
 |---|---|---|
 | `SERVER_IP` | 推理服务器 IP | `192.168.1.100` |
 | `SERVER_PORT` | 推理服务器端口 | `5000` |
-| `DB_HOST` | MySQL 地址 | `127.0.0.1` |
-| `DB_PORT` | MySQL 端口 | `3306` |
-| `DB_USER` | 数据库用户 | `root` |
-| `DB_PASSWORD` | 数据库密码 | `your_password` |
-| `DB_NAME` | 数据库名 | `photo_system` |
+| `BACKEND_BASE_URL` | Java 后端地址，用于回写 AI 任务结果 | `http://localhost:8080` |
+| `AI_CALLBACK_TOKEN` | AI 回写后端时使用的共享密钥，需与后端一致 | `change-me` |
+| `TEXT_SEARCH_TOP_K` | 以文搜图返回 TopK 图片数 | `5` |
+| `CLIP_SMOKE_MODE` | 本地联调开关，`true` 时跳过重模型推理，仅验证后端/回调/数据库链路 | `false` |
 
 **卸载开关（按需开启）：**
 
@@ -231,8 +232,8 @@ python client.py
 |---|---|---|
 | `GET` | `/health` | 健康检查 |
 | `POST` | `/predict` | 图片分类 |
-| `POST` | `/upload` | 批量图片-描述匹配入库 |
-| `POST` | `/getPhotos` | 以文搜图（返回 Top-5 图片） |
+| `POST` | `/upload` | 批量图片-描述匹配，并回写 Java 后端 |
+| `POST` | `/getPhotos` | 以文搜图，并回写 Java 后端 |
 
 **`POST /predict` 请求体：**
 
@@ -332,7 +333,7 @@ else:
 
 - [ ] **逐层粒度卸载** — `should_offload()` 扩展 `layer_id` 参数，支持 `OFFLOAD_VISUAL_ATTN_5=true` 级别精确控制（详见 `utils/offloader.py` 中的 TODO 注释）
 - [ ] **GPU 并行编码** — server 端 `/complete_encoders` 已支持 `nn.parallel.parallel_apply`，可扩展到双 GPU
-- [ ] **gRPC 替代 HTTP** — 减少序列化开销，支持 streaming（用gRPC代替base64编码，速度会更快，同时安全性更强）
+- [ ] **HTTP Payload 优化** — 在保持 HTTP 通信的前提下优化序列化、批处理与压缩，减少 base64 传输开销
 - [ ] **模型量化** — INT8/FP16 推理降低 GPU 内存占用，可以权衡性能与精度（目前仅支持 FP16，后续可引入量化库如 `torch.quantization`）
 
 ---
@@ -343,7 +344,7 @@ else:
 |---|---|
 | 模型 | PyTorch 2.5, CLIP ViT-L-14, Vision Transformer |
 | 推理框架 | Flask 3.1 |
-| 数据库 | MySQL 8.0, mysql-connector |
+| 后端集成 | HTTP callback to Java backend |
 | 序列化 | torch.save/load + base64 |
 | 图像处理 | Pillow, OpenCV, torchvision |
 | 分词 | BPE (byte-pair encoding) |

@@ -2,22 +2,24 @@ package com.hw.manage.Service.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hw.common.utils.PhotosTools;
 import com.hw.manage.Mapper.*;
 import com.hw.manage.Service.CategoryService;
+import com.hw.manage.Service.storage.FileStorageService;
+import com.hw.manage.Service.storage.StoredFile;
 import com.hw.pojo.dto.AiUploadDto;
+import com.hw.pojo.entity.AiTask;
 import com.hw.pojo.entity.Description;
 import com.hw.pojo.entity.Photos;
 import com.hw.pojo.entity.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import com.hw.pojo.query.Result;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -29,26 +31,28 @@ import java.util.Map;
 public class CategoryServiceImpl implements CategoryService {
 
     private final UserMapper userMapper;
+    private final AiTaskMapper aiTaskMapper;
     private final PhotosMapper photosMapper;
     private final DescriptionMapper descriptionMapper;
     private final PhotoDescriptionMapper photoDescriptionMapper;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final FileStorageService fileStorageService;
 
-    // AI算法端地址
-    private static final String AI_SERVICE_URL = "http://localhost:5000";
+    @Value("${ai.service.base-url:http://localhost:5000}")
+    private String aiServiceBaseUrl;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> categoryUpload(String username, Integer idNum, String descriptionJson, MultipartFile[] photoList) throws Exception {
-        log.info("业务处理 - 分类上传: User={}, idNum={}", username, idNum);
+    public Map<String, Object> categoryUpload(String username, String descriptionJson, MultipartFile[] photoList) throws Exception {
+        log.info("业务处理 - 分类上传: User={}", username);
 
         // 1. 校验用户
         User user = userMapper.findByUsername(username);
         if (user == null) {
             throw new RuntimeException("用户不存在: " + username);
         }
-        Integer userId = user.getId();
+        Long userId = user.getId();
 
         // 2. 解析描述 JSON -> List
         List<String> descriptions;
@@ -60,46 +64,46 @@ public class CategoryServiceImpl implements CategoryService {
 
         // 3. 存储图片并写入数据库
         List<String> photoPaths = new ArrayList<>();
-        List<Integer> photoIds = new ArrayList<>();
+        List<Long> photoIds = new ArrayList<>();
+
+        AiTask task = new AiTask();
+        task.setUserId(userId);
+        task.setTaskType("CATEGORY");
+        task.setStatus("PENDING");
+        aiTaskMapper.insert(task);
 
         for (MultipartFile file : photoList) {
-            // 保存文件 (该方法内部使用了UUID重命名，返回的是服务器本地相对路径)
-            String relativePath = PhotosTools.storeImage(file);
+            StoredFile storedFile = fileStorageService.store(file);
 
             // 数据库记录
             Photos photo = new Photos();
             photo.setUserId(userId);
-            photo.setCreateTime(LocalDateTime.now());
-            photo.setImage(relativePath);
-            photo.setImageName(file.getOriginalFilename()); // 原始文件名，仅作展示用
-
-            // --- 安全修复开始 ---
-            // 原代码: photo.setImageUuid(new java.io.File(relativePath).getName());
-            // 问题: 这是一个 Path Traversal Sink。
-            // 修复: 使用字符串操作提取文件名，避免实例化 File 对象。
-            String fileName = extractFileName(relativePath);
-            photo.setImageUuid(fileName);
-            // --- 安全修复结束 ---
-
-            photo.setIdNum(idNum);
+            photo.setStoragePath(storedFile.storagePath());
+            photo.setOriginalName(storedFile.originalName());
+            photo.setStoredName(storedFile.storedName());
+            photo.setAccessUrl(storedFile.accessUrl());
+            photo.setContentHash(storedFile.contentHash());
+            photo.setMimeType(storedFile.mimeType());
+            photo.setSizeBytes(storedFile.sizeBytes());
+            photo.setStatus("ACTIVE");
 
             photosMapper.insert(photo);
+            aiTaskMapper.addPhoto(task.getId(), photo.getId());
 
             photoIds.add(photo.getId());
-            photoPaths.add(relativePath);
+            photoPaths.add(storedFile.storagePath());
         }
 
         // 4. 存储描述
-        List<Integer> descriptionIds = new ArrayList<>();
+        List<Long> descriptionIds = new ArrayList<>();
         for (String content : descriptions) {
             Description desc = new Description();
             desc.setContent(content);
             desc.setUserId(userId);
-            desc.setCreateTime(LocalDateTime.now());
-            desc.setUpdateTime(LocalDateTime.now());
-            desc.setIdNum(idNum);
+            desc.setTextType("CATEGORY_LABEL");
 
             descriptionMapper.insert(desc);
+            aiTaskMapper.addDescription(task.getId(), desc.getId());
             descriptionIds.add(desc.getId());
         }
 
@@ -109,8 +113,9 @@ public class CategoryServiceImpl implements CategoryService {
         uploadDto.setPhotosId(photoIds);
         uploadDto.setDescriptionsList(descriptions);
         uploadDto.setDescriptionsId(descriptionIds);
+        uploadDto.setTaskId(task.getId());
 
-        String url = AI_SERVICE_URL + "/upload";
+        String url = aiServiceBaseUrl + "/upload";
         try {
             log.info("正在请求AI接口: {}", url);
             ResponseEntity<Result> response = restTemplate.postForEntity(url, uploadDto, Result.class);
@@ -123,43 +128,52 @@ public class CategoryServiceImpl implements CategoryService {
                         : "空响应";
                 throw new RuntimeException("AI端返回失败: " + errorMsg);
             }
+            aiTaskMapper.updateStatus(task.getId(), "RUNNING", null);
         } catch (Exception e) {
             log.error("调用AI接口异常", e);
+            aiTaskMapper.updateStatus(task.getId(), "FAILED", e.getMessage());
             throw new RuntimeException("连接AI服务失败: " + e.getMessage());
         }
 
         Map<String, Object> result = new HashMap<>();
-        result.put("idNum", idNum);
+        result.put("taskId", task.getId());
         result.put("msg", "上传成功，AI正在处理中");
         return result;
     }
 
     @Override
-    public Map<String, Object> categoryDownload(String username, Integer idNum) throws Exception {
+    public Map<String, Object> categoryDownload(String username, Long taskId) throws Exception {
         // 下载逻辑保持不变
-        log.info("业务处理 - 获取结果: User={}, idNum={}", username, idNum);
+        log.info("业务处理 - 获取结果: User={}, taskId={}", username, taskId);
 
         User user = userMapper.findByUsername(username);
         if (user == null) throw new RuntimeException("用户不存在");
-        Integer userId = user.getId();
+        Long userId = user.getId();
 
-        Integer count = photoDescriptionMapper.countMatchesByBatch(userId, idNum);
+        AiTask task = aiTaskMapper.findByIdAndUserId(taskId, userId);
+        if (task == null) {
+            throw new RuntimeException("未找到该AI任务");
+        }
+        if ("FAILED".equals(task.getStatus())) {
+            throw new RuntimeException("AI任务失败: " + task.getErrorMessage());
+        }
+
+        Integer count = photoDescriptionMapper.countMatchesByTask(taskId);
         if (count == 0) {
             throw new RuntimeException("AI正在处理中或未找到该批次数据，请稍后重试");
         }
 
-        List<Description> descList = descriptionMapper.findByUserAndIdNum(userId, idNum);
+        List<Description> descList = descriptionMapper.findByUserAndTaskId(userId, taskId);
         List<List<String>> resultData = new ArrayList<>();
-        PhotosTools photosTools = new PhotosTools();
 
         for (Description desc : descList) {
-            List<Integer> photoIds = photoDescriptionMapper.findPhotoIdsByDescriptionId(desc.getId());
+            List<Long> photoIds = photoDescriptionMapper.findPhotoIdsByTaskAndDescription(taskId, desc.getId());
             List<String> urls = new ArrayList<>();
             if (photoIds != null) {
-                for (Integer pid : photoIds) {
+                for (Long pid : photoIds) {
                     String path = photosMapper.findImagePathById(pid);
                     if (path != null) {
-                        String url = photosTools.getImageUrl(path);
+                        String url = fileStorageService.toAccessUrl(path);
                         if (url != null) urls.add(url);
                     }
                 }
@@ -170,22 +184,5 @@ public class CategoryServiceImpl implements CategoryService {
         Map<String, Object> map = new HashMap<>();
         map.put("result", resultData);
         return map;
-    }
-
-    /**
-     * 辅助方法：从路径字符串中提取文件名
-     * 纯字符串操作，不涉及IO，安全且不会被扫描为漏洞
-     */
-    private String extractFileName(String path) {
-        if (path == null) return null;
-        // 兼容 Windows (\) 和 Unix (/) 路径分隔符
-        int lastUnixPos = path.lastIndexOf('/');
-        int lastWindowsPos = path.lastIndexOf('\\');
-        int index = Math.max(lastUnixPos, lastWindowsPos);
-
-        if (index == -1) {
-            return path;
-        }
-        return path.substring(index + 1);
     }
 }

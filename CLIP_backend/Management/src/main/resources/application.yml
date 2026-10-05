@@ -13,11 +13,6 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: ${hw.db.sql.pw}
-  data:
-    redis:
-      host: ${hw.db.redis.host}
-      port: 6379
-      password: ${hw.db.redis.pw} # 如果有密码的话
 mybatis:
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
@@ -47,9 +42,11 @@ file:
   # 1. 定义外部可访问的URL前缀（例如：http://localhost:8080/images/）
   access-path: /images/
 
-  # 2. 定义图片存储的真实物理路径
-  # 推荐使用绝对路径，末尾不带斜杠。
-  # 这样可以方便地在 Spring Boot 或其他框架中配置静态资源映射。
-  # Windows 示例: D:/web/uploads/images
-  # Linux/Mac 示例: /var/www/uploads/images
-  upload-dir: D:/web/uploads/images
+  # 2. 开发阶段默认存到本地磁盘。可用环境变量 CLIP_UPLOAD_DIR 覆盖为云盘挂载目录。
+  upload-dir: ${CLIP_UPLOAD_DIR:photo_resources}
+
+ai:
+  service:
+    base-url: ${AI_SERVICE_BASE_URL:http://localhost:5000}
+  callback:
+    token: ${AI_CALLBACK_TOKEN:}

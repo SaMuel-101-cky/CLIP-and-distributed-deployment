@@ -1,6 +1,5 @@
 package com.hw.manage.Mapper;
 
-import com.hw.pojo.entity.Description;
 import com.hw.pojo.entity.Photos;
 import org.apache.ibatis.annotations.*;
 
@@ -8,27 +7,37 @@ import java.util.List;
 
 @Mapper
 public interface PhotosMapper {
-     void addAll(List<Description> descriptionList);//链表写入
-    @Insert(" insert into description(content,create_time,update_time,user_id,idNum) values(#{content},#{createTime},#{updateTime},#{userId},#{idNum})")
-    void addone(Description description);//单个写入
-    @Delete(" delete from photos where user_id=#{userId} and image_name=#{imageName}")
-    void deletePhotos(Integer userId, String imageName);
+    @Update("UPDATE photos SET status = 'DELETED', deleted_at = NOW(), " +
+            "delete_expire_at = DATE_ADD(NOW(), INTERVAL 30 DAY) " +
+            "WHERE user_id = #{userId} AND access_url = #{accessUrl} AND status = 'ACTIVE'")
+    void softDeleteByAccessUrl(@Param("userId") Long userId, @Param("accessUrl") String accessUrl);
 
-    List<String> listPhotos(Integer userId);//通过用户id获取图片
+    @Delete("DELETE FROM photos WHERE user_id = #{userId} AND access_url = #{accessUrl} AND status = 'DELETED'")
+    void hardDeleteByAccessUrl(@Param("userId") Long userId, @Param("accessUrl") String accessUrl);
 
-    @Select(" select * from photos where user_id=#{userId} and  image_name=#{imageName}")
-    List<Photos> findByImageName(String imageName,Integer userId);
+    @Select("SELECT access_url FROM photos WHERE user_id = #{userId} AND status = 'ACTIVE' ORDER BY created_at DESC")
+    List<String> listPhotos(Long userId);
 
-    Integer findMaxIdNum(String username);
-    @Select(" select image_name from photos where image= #{url}")
-    String findImageName(String url);
+    @Select("SELECT * FROM photos WHERE user_id = #{userId} AND status = 'ACTIVE' ORDER BY created_at DESC")
+    List<Photos> listActivePhotoRecords(Long userId);
 
-    @Insert("INSERT INTO photos(image, create_time, user_id, image_name, image_uuid, idNum) " +
-            "VALUES(#{image}, #{createTime}, #{userId}, #{imageName}, #{imageUuid}, #{idNum})")
+    @Select("SELECT access_url FROM photos WHERE user_id = #{userId} AND status = 'DELETED' ORDER BY deleted_at DESC")
+    List<String> listDeletedPhotos(Long userId);
+
+    @Select("SELECT * FROM photos WHERE user_id = #{userId} AND access_url = #{accessUrl}")
+    Photos findByAccessUrl(@Param("userId") Long userId, @Param("accessUrl") String accessUrl);
+
+    @Insert("INSERT INTO photos(user_id, storage_path, access_url, original_name, stored_name, " +
+            "content_hash, mime_type, size_bytes, status) " +
+            "VALUES(#{userId}, #{storagePath}, #{accessUrl}, #{originalName}, #{storedName}, " +
+            "#{contentHash}, #{mimeType}, #{sizeBytes}, #{status})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     void insert(Photos photos);
 
-    @Select("SELECT image FROM photos WHERE id = #{id}")
-    String findImagePathById(Integer id);
+    @Select("SELECT storage_path FROM photos WHERE id = #{id}")
+    String findImagePathById(Long id);
+
+    @Select("SELECT count(*) FROM photos WHERE id = #{photoId} AND user_id = #{userId} AND status = 'ACTIVE'")
+    Integer countActiveByUserAndId(@Param("userId") Long userId, @Param("photoId") Long photoId);
 
 }

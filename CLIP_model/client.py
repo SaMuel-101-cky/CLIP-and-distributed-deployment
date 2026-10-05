@@ -1,21 +1,21 @@
-import torch.nn as nn
-import time
 import sys
 
 import logging
 import threading
 from flask import Flask, request, jsonify
 import torch
-import base64
-import numpy as np
-import io
 from utils.offloader import OffloadHandler
-from model.clip_loader import build_model,extract_model_components
-from utils import config
+from model.clip_loader import build_model
 from utils.setup import get_device_and_ip,configure_logger
 from utils.pred import predict
-import manager.db_manager as db
 from utils import config as cfg
+from manager.ai_task_payload import (
+    build_category_matches,
+    build_smoke_matches,
+    build_task_result_payload,
+    build_text_search_matches,
+)
+from manager.backend_client import post_task_result
 
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -81,6 +81,7 @@ def predict_():
     return jsonify({"results": predictions})
 
 def func1_process(
+    task_id,
     photo_list,
     photo_id_list,
     description_list,
@@ -88,36 +89,28 @@ def func1_process(
     logger
  ):
 
-    logits_per_image, _ = predict(model, photo_list, description_list)
-    probs = torch.softmax(logits_per_image, dim=-1)
-    probs_np = probs.cpu().numpy()
-    insert_rows = []
-    num_photos = probs_np.shape[0]
-
-    for i in range(num_photos):
-        photo_id = photo_id_list[i]
-        top1_desc_idx = probs_np[i].argmax()
-        matched_description_id = description_id_list[top1_desc_idx]
-
-        insert_rows.append((
-            photo_id,
-            matched_description_id,
-            1
-        ))
-
-    sql_insert = """
-            INSERT INTO photo_description (
-                photo_id,
-                description_id,
-                function_type
-            ) VALUES (%s, %s, %s)
-            """
-    db.execute_insert(sql_insert, insert_rows, logger)
+    try:
+        if cfg.CLIP_SMOKE_MODE:
+            matches = [
+                build_smoke_matches([photo_id], description_id_list[0], "CATEGORY", top_k=1)[0]
+                for photo_id in photo_id_list
+            ]
+        else:
+            logits_per_image, _ = predict(model, photo_list, description_list)
+            probs = torch.softmax(logits_per_image, dim=-1)
+            probs_np = probs.cpu().numpy()
+            matches = build_category_matches(probs_np, photo_id_list, description_id_list)
+        payload = build_task_result_payload(task_id, "SUCCESS", matches)
+        post_task_result(task_id, payload, cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, logger=logger)
+    except Exception as e:
+        logger.exception("[BackgroundTask] 分类任务处理失败: task_id=%s", task_id)
+        payload = build_task_result_payload(task_id, "FAILED", [], str(e))
+        post_task_result(task_id, payload, cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, logger=logger)
 
 
 
 @app.route("/upload", methods=["POST"])
-def insert_photo_descriptions():
+def receive_category_task():
     #读取json
     try:
         data = request.get_json(force=True)
@@ -125,128 +118,99 @@ def insert_photo_descriptions():
         photo_id_list = data.get("photosId")
         description_list = data.get("descriptionsList")
         description_id_list = data.get("descriptionsId")
+        task_id = data.get("taskId")
 
-        if not (photo_list and photo_id_list and description_list and description_id_list):
+        if not (photo_list and photo_id_list and description_list and description_id_list) or task_id is None:
             return jsonify(
-                {"code": 0, "msg": "参数不完整：photoList, photoId, descriptionList, descriptionId 均为必须"}), 400
+                {"code": 0, "message": "参数不完整：photosList, photosId, descriptionsList, descriptionsId, taskId 均为必须"}), 400
         if len(description_list) != len(description_id_list):
             return jsonify(
-                {"code": 0, "msg": "描述文本列表和描述ID列表长度不一致"}), 400
+                {"code": 0, "message": "描述文本列表和描述ID列表长度不一致"}), 400
         if len(photo_list) != len(photo_id_list):
             return jsonify(
-                {"code": 0, "msg": "图片地址列表和图片ID列表长度不一致"}), 400
+                {"code": 0, "message": "图片地址列表和图片ID列表长度不一致"}), 400
 
     except Exception as e:
         app.logger.error(f"参数解析错误: {e}")
-        return jsonify({"code": 0, "msg": "请求数据格式错误"}), 400
+        return jsonify({"code": 0, "message": "请求数据格式错误"}), 400
 
     try:
         thread = threading.Thread(
             target = func1_process,
-            args=(photo_list, photo_id_list, description_list, description_id_list,logger)
+            args=(task_id, photo_list, photo_id_list, description_list, description_id_list, logger)
         )
         thread.start()
 
-        return jsonify({"code": 1, "msg": "图片上传及匹配任务已接收，正在后台处理"}), 200
+        return jsonify({"code": 1, "message": "图片上传及匹配任务已接收，正在后台处理"}), 200
 
     except Exception as e:
         app.logger.error(f"启动后台线程失败: {e}")
-        return jsonify({"code": 0, "msg": f"启动后台任务失败：{str(e)}"}), 500
+        return jsonify({"code": 0, "message": f"启动后台任务失败：{str(e)}"}), 500
 
 
 def func2_process(
-        photo_records,
-        description_list,
-        description_id_list,
+        task_id,
+        photo_list,
+        photo_id_list,
+        description,
+        description_id,
         logger
 ):
-
-    photo_id_list = [record['id'] for record in photo_records]
-    photo_url_list = [record['image'] for record in photo_records]
-
-    logits_per_image, logits_per_text = predict(model, photo_url_list, description_list)
-
-    probs = torch.softmax(logits_per_text, dim=-1)
-    probs_np = probs.cpu().numpy()
-
-    insert_rows = []
-    num_descriptions = probs_np.shape[0]
-
-    for desc_idx in range(num_descriptions):
-        description_id = description_id_list[desc_idx]
-        desc_probs = probs_np[desc_idx]
-        # 找到得分最高的 Top 5 图片的**索引**
-        top_5_photo_indices = np.argsort(desc_probs)[::-1][:5]
-
-        for photo_index in top_5_photo_indices:
-            photo_id = photo_id_list[photo_index]
-            insert_rows.append((photo_id, description_id, 2))
-
-    sql_write = """
-            INSERT INTO photo_description (
-                photo_id, 
+    try:
+        if cfg.CLIP_SMOKE_MODE:
+            matches = build_smoke_matches(
+                photo_id_list,
                 description_id,
-                function_type
-            ) VALUES (%s, %s, %s)
-            """
-    db.execute_insert(sql_write, insert_rows, logger)
+                "TEXT_SEARCH",
+                top_k=cfg.TEXT_SEARCH_TOP_K,
+            )
+        else:
+            _, logits_per_text = predict(model, photo_list, [description])
+            probs = torch.softmax(logits_per_text, dim=-1)
+            probs_np = probs.cpu().numpy()
+            matches = build_text_search_matches(
+                probs_np,
+                photo_id_list,
+                description_id,
+                top_k=cfg.TEXT_SEARCH_TOP_K,
+            )
+        payload = build_task_result_payload(task_id, "SUCCESS", matches)
+        post_task_result(task_id, payload, cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, logger=logger)
+    except Exception as e:
+        logger.exception("[BackgroundTask] 文本搜图任务处理失败: task_id=%s", task_id)
+        payload = build_task_result_payload(task_id, "FAILED", [], str(e))
+        post_task_result(task_id, payload, cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, logger=logger)
 
 #以文搜图
 @app.route("/getPhotos", methods=["POST"])
 def search_photo_by_description():
     try:
         data = request.get_json(force=True)
-        description_list = [data.get("description", None)]
-        description_id_list = [data.get("descriptionId", None)]
-        user_id = data.get("userId", None)
+        task_id = data.get("taskId", None)
+        description = data.get("description", None)
+        description_id = data.get("descriptionId", None)
+        photo_list = data.get("photosList", None)
+        photo_id_list = data.get("photosId", None)
 
-        if not (description_list and description_id_list and user_id):
+        if task_id is None or description is None or description_id is None or not photo_list or not photo_id_list:
             return jsonify(
-                {"code": 0, "msg": "参数不完整：description, descriptionId, userId 均为必须"}), 400
-        if len(description_list) != len(description_id_list):
+                {"code": 0, "message": "参数不完整：taskId, description, descriptionId, photosList, photosId 均为必须"}), 400
+        if len(photo_list) != len(photo_id_list):
             return jsonify(
-                {"code": 0, "msg": "描述文本列表和描述ID列表长度不一致"}), 400
+                {"code": 0, "message": "图片路径列表和图片ID列表长度不一致"}), 400
 
     except Exception as e:
         app.logger.error(f"参数解析错误: {e}")
-        return jsonify({"code": 0, "msg": "请求数据格式错误"}), 400
-
-    sql_read = """
-                SELECT id, image 
-                FROM photos
-                WHERE user_id = %s
-            """
-
-    try:
-        photo_records = db.execute_query(
-            sql_read,
-            (user_id,),
-            logger
-        )
-
-    except Exception:           #设计不好，异常捕获太过宽泛，不利于调试debug
-        return jsonify({
-            "code": 0,
-            "msg": "数据库查询失败"
-        }), 500
-
-    if (len(photo_records) == 0):
-        return jsonify({
-            "code": 0,
-            "msg": "该用户没有图片记录"
-        }), 200
-        # 启动后台线程
-        # 将获取到的 photo_records 和其他参数传递给后台处理函数
+        return jsonify({"code": 0, "message": "请求数据格式错误"}), 400
     thread = threading.Thread(
         target = func2_process,
-        # 此处有5个参数，但是声明的时候只有4个，少了一个user_id，是否是SQL语句有问题？
-        args = (photo_records, description_list, description_id_list, user_id, logger)
+        args = (task_id, photo_list, photo_id_list, description, description_id, logger)
     )
     thread.start()
 
         # 立即返回响应给客户端
-    return jsonify({"code": 1, "msg": "任务已接收，正在后台进行推理和匹配，请稍后查询结果"}), 200
+    return jsonify({"code": 1, "message": "任务已接收，正在后台进行推理和匹配，请稍后查询结果"}), 200
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=config.SERVER_PORT)
+    app.run(host='0.0.0.0', port=cfg.SERVER_PORT)

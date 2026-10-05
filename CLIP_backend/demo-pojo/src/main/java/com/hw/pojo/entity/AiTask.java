@@ -9,19 +9,12 @@ import java.time.LocalDateTime;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class Photos {
+public class AiTask {
     private Long id;
     private Long userId;
-    private String storagePath;
-    private String accessUrl;
-    private String originalName;
-    private String storedName;
-    private String contentHash;
-    private String mimeType;
-    private Long sizeBytes;
+    private String taskType;
     private String status;
-    private LocalDateTime deletedAt;
-    private LocalDateTime deleteExpireAt;
+    private String errorMessage;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

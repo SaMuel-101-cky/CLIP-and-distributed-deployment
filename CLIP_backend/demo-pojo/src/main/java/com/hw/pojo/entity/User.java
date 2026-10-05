@@ -12,9 +12,33 @@ import java.time.LocalDateTime;
 public class User {
     String name;//用户名
     String username;//账户名
-    String password;
+    String passwordHash;
     String phoneNum;
-    LocalDateTime createTime;
-    LocalDateTime updateTime;
-    Integer id;//主键id
+    LocalDateTime createdAt;
+    LocalDateTime updatedAt;
+    Long id;//主键id
+
+    public String getPassword() {
+        return passwordHash;
+    }
+
+    public void setPassword(String password) {
+        this.passwordHash = password;
+    }
+
+    public LocalDateTime getCreateTime() {
+        return createdAt;
+    }
+
+    public void setCreateTime(LocalDateTime createTime) {
+        this.createdAt = createTime;
+    }
+
+    public LocalDateTime getUpdateTime() {
+        return updatedAt;
+    }
+
+    public void setUpdateTime(LocalDateTime updateTime) {
+        this.updatedAt = updateTime;
+    }
 }

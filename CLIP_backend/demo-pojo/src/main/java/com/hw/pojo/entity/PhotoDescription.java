@@ -8,8 +8,11 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class PhotoDescription {
-    private Integer id;
-    private Integer photoId;
-    private Integer descriptionId;
-    private Integer functionType;
+    private Long id;
+    private Long taskId;
+    private Long photoId;
+    private Long descriptionId;
+    private String matchType;
+    private Double score;
+    private Integer rankNo;
 }

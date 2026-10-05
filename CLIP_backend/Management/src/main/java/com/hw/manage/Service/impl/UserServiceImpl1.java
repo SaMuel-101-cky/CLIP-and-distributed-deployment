@@ -1,38 +1,53 @@
 package com.hw.manage.Service.impl;
 
+import com.hw.manage.Mapper.AiTaskMapper;
+import com.hw.manage.Mapper.DescriptionMapper;
+import com.hw.manage.Mapper.PhotoDescriptionMapper;
 import com.hw.manage.Mapper.PhotosMapper;
 import com.hw.manage.Mapper.UserMapper;
 import com.hw.manage.Service.UserService;
+import com.hw.manage.Service.storage.FileStorageService;
+import com.hw.pojo.dto.AiTextSearchDto;
 import com.hw.pojo.dto.Descriptiondto;
+import com.hw.pojo.entity.AiTask;
 import com.hw.pojo.entity.Description;
+import com.hw.pojo.entity.Photos;
 import com.hw.pojo.entity.User;
 import com.hw.pojo.query.Sequery;
-import lombok.AllArgsConstructor;
+import com.hw.pojo.query.Result;
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
-@AllArgsConstructor
+@RequiredArgsConstructor
 @Slf4j
 @Data
 public class UserServiceImpl1 implements UserService {
     //对密码进行加密存储
     private final PasswordEncoder passwordEncoder;
-    private UserMapper userMapper;
-    private RedisTemplate<String,Object> redisTemplate;
-    private PhotosMapper photosMapper;
-    // 定义Redis中Key的前缀，未匹配的描述 方便管理
-    private static final String MATCH_CACHE_KEY_PREFIX = "match:";
-    //定义Redis中Key的前缀，获得匹配好的结果
-    private static final String MATCHRESULT_CACHE_KEY_PREFIX = "match_result:";
+    private final UserMapper userMapper;
+    private final AiTaskMapper aiTaskMapper;
+    private final DescriptionMapper descriptionMapper;
+    private final PhotoDescriptionMapper photoDescriptionMapper;
+    private final PhotosMapper photosMapper;
+    private final FileStorageService fileStorageService;
+    private final RestTemplate restTemplate;
+
+    @Value("${ai.service.base-url:http://localhost:5000}")
+    private String aiServiceBaseUrl;
+
     @Transactional(propagation= Propagation.REQUIRES_NEW,rollbackFor=Exception.class)
     @Override
     public void changeuserInfo(User userInfo) {
@@ -51,38 +66,96 @@ public class UserServiceImpl1 implements UserService {
         log.info("修改用户账户名成功");
     }
     @Override
-    public Integer uploadmatch(Descriptiondto descriptiondto)
-    {   log.info("上传匹配信息");
-        log.info("查找最大的idNum");
-        Integer idNum=photosMapper.findMaxIdNum(descriptiondto.getUsername())+1;
-        //将匹配信息存储到redis中
-        String cacheKey = MATCH_CACHE_KEY_PREFIX + descriptiondto.getUsername()+ ":" + idNum;//KEY值
-        redisTemplate.opsForValue().set(cacheKey, descriptiondto.getDescription());
-        //将描述写入数据库
-        Integer userId = userMapper.findByUsername(descriptiondto.getUsername()).getId();
-        Description description =new Description(descriptiondto.getDescription(), LocalDateTime.now(), LocalDateTime.now(), userId,null,idNum);
-        photosMapper.addone(description);
-       log.info("上传匹配信息成功");
-       return idNum;
+    @Transactional(propagation= Propagation.REQUIRES_NEW, rollbackFor=Exception.class)
+    public Long uploadmatch(Descriptiondto descriptiondto)
+    {
+        log.info("上传文本搜索任务");
+        User user = userMapper.findByUsername(descriptiondto.getUsername());
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在: " + descriptiondto.getUsername());
+        }
+
+        AiTask task = new AiTask();
+        task.setUserId(user.getId());
+        task.setTaskType("TEXT_SEARCH");
+        task.setStatus("PENDING");
+        aiTaskMapper.insert(task);
+
+        Description description = new Description();
+        description.setUserId(user.getId());
+        description.setContent(descriptiondto.getDescription());
+        description.setTextType("SEARCH_QUERY");
+        descriptionMapper.insert(description);
+        aiTaskMapper.addDescription(task.getId(), description.getId());
+
+        List<Photos> activePhotos = photosMapper.listActivePhotoRecords(user.getId());
+        if (activePhotos.isEmpty()) {
+            aiTaskMapper.updateStatus(task.getId(), "FAILED", "该用户没有可搜索的图片");
+            throw new RuntimeException("该用户没有可搜索的图片");
+        }
+
+        AiTextSearchDto aiRequest = new AiTextSearchDto();
+        aiRequest.setTaskId(task.getId());
+        aiRequest.setUserId(user.getId());
+        aiRequest.setDescription(description.getContent());
+        aiRequest.setDescriptionId(description.getId());
+        aiRequest.setPhotosId(activePhotos.stream().map(Photos::getId).toList());
+        aiRequest.setPhotosList(activePhotos.stream().map(Photos::getStoragePath).toList());
+
+        String url = aiServiceBaseUrl + "/getPhotos";
+        try {
+            ResponseEntity<Result> response = restTemplate.postForEntity(url, aiRequest, Result.class);
+            Result aiResult = response.getBody();
+            if (aiResult == null || aiResult.getCode() != 1) {
+                String errorMsg = (aiResult != null && aiResult.getMessage() != null)
+                        ? aiResult.getMessage()
+                        : "空响应";
+                throw new RuntimeException("AI端返回失败: " + errorMsg);
+            }
+            aiTaskMapper.updateStatus(task.getId(), "RUNNING", null);
+        } catch (Exception e) {
+            aiTaskMapper.updateStatus(task.getId(), "FAILED", e.getMessage());
+            throw new RuntimeException("连接AI服务失败: " + e.getMessage());
+        }
+
+        log.info("上传文本搜索任务成功，taskId={}", task.getId());
+        return task.getId();
     }
+
     @Override
     public List<String> downloadmatch(Sequery sequery)throws Exception
-    {   log.info("开始下载匹配信息");
-        String cacheKey = MATCHRESULT_CACHE_KEY_PREFIX + sequery.getUsername()+ ":" + sequery.getIdNum();
-        Object obj = redisTemplate.opsForValue().get(cacheKey);
-        //判断是否是字符串类型
-        if (!(obj instanceof List<?> rawList)) {
+    {
+        log.info("开始下载文本搜索结果，taskId={}", sequery.getTaskId());
+        User user = userMapper.findByUsername(sequery.getUsername());
+        if (user == null) {
+            throw new IllegalArgumentException("用户不存在: " + sequery.getUsername());
+        }
+        AiTask task = aiTaskMapper.findByIdAndUserId(sequery.getTaskId(), user.getId());
+        if (task == null) {
+            throw new Exception("未找到该AI任务");
+        }
+        if ("FAILED".equals(task.getStatus())) {
+            throw new Exception("AI任务失败: " + task.getErrorMessage());
+        }
+
+        List<Description> descriptions = descriptionMapper.findByUserAndTaskId(user.getId(), task.getId());
+        if (descriptions.isEmpty()) {
+            throw new Exception("任务缺少查询文本");
+        }
+        Integer count = photoDescriptionMapper.countMatchesByTask(task.getId());
+        if (count == 0) {
             throw new Exception("结果还没处理好");
         }
-        // 检查是否所有元素都能被当作字符串
-        if (rawList.stream().anyMatch(item -> !(item == null || item instanceof String))) {
-            System.err.println("转换失败：List 中包含非 String 类型的元素。");
-            return null;
+
+        List<String> urls = new ArrayList<>();
+        for (Long photoId : photoDescriptionMapper.findPhotoIdsByTaskAndDescription(task.getId(), descriptions.get(0).getId())) {
+            String storagePath = photosMapper.findImagePathById(photoId);
+            String accessUrl = fileStorageService.toAccessUrl(storagePath);
+            if (accessUrl != null) {
+                urls.add(accessUrl);
+            }
         }
-        // 进行转换
-        return  rawList.stream()
-                .map(item -> (String) item)
-                .toList();
+        return urls;
     }
 
 }

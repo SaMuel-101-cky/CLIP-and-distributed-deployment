@@ -1,18 +1,30 @@
-import cv2
 import re
 import urllib.request
 from typing import List
 import numpy as np
 import torch
 from torchvision import transforms
-from model import clip_loader as m
-
-state_dict = torch.jit.load('ViT-L-14.pt', map_location='cpu').state_dict()
 transform = transforms.ToTensor()
+
+
+def _cv2():
+    try:
+        import cv2
+    except ImportError as exc:
+        raise RuntimeError("Missing OpenCV dependency. Install opencv-python.") from exc
+    return cv2
+
+
+def get_model_device(model):
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return torch.device("cpu")
 
 
 def read_image_from_path(path: str):
     """自动判断 path 是 URL 还是本地路径，读取并返回 BGR numpy array"""
+    cv2 = _cv2()
     if re.match(r'^https?://', path):
         resp = urllib.request.urlopen(path)
         image_array = np.asarray(bytearray(resp.read()), dtype=np.uint8)
@@ -26,8 +38,12 @@ def read_image_from_path(path: str):
 
 
 def predict(model, image_paths: List[str], class_names: List[str]):
+    cv2 = _cv2()
+    from model import clip_loader as m
+
+    device = get_model_device(model)
     prompts = ['a photo of a ' + class_name for class_name in class_names]
-    tokenized_prompts = m.tokenize(prompts).to(torch.device('cuda'))
+    tokenized_prompts = m.tokenize(prompts).to(device)
 
     imgs = []
     for path in image_paths:
@@ -37,7 +53,7 @@ def predict(model, image_paths: List[str], class_names: List[str]):
         img = transform(img)  # [C, H, W]
         imgs.append(img)
 
-    imgs = torch.stack(imgs).to(torch.device('cuda'))  # [B, C, H, W]
+    imgs = torch.stack(imgs).to(device)  # [B, C, H, W]
 
 
     with torch.no_grad():

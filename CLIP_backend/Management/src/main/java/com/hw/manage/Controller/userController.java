@@ -78,7 +78,8 @@ public class userController {
 
     }
     @GetMapping("/match/download")
-    public Result downloadmatch(@RequestBody Sequery sequery) throws Exception {
+    public Result downloadmatch(@RequestParam String username, @RequestParam Long taskId) throws Exception {
+        Sequery sequery = new Sequery(username, taskId);
         log.info("用户准备下载描述结果，编号为:{}", sequery);
         List<String> photosList = null;
         try {
@@ -93,12 +94,11 @@ public class userController {
     @PostMapping("/category/upload")
     public Result categoryUpload(
             @RequestParam("username") String username,
-            @RequestParam("idNum") Integer idNum,
             @RequestParam("descriptionList") String descriptionList,
             @RequestParam("photoList") MultipartFile[] photoList
     ) {
         try {
-            Map<String, Object> data = categoryService.categoryUpload(username, idNum, descriptionList, photoList);
+            Map<String, Object> data = categoryService.categoryUpload(username, descriptionList, photoList);
             return Result.success(data);
         } catch (Exception e) {
             log.error("分类上传失败", e);
@@ -109,22 +109,11 @@ public class userController {
     /**
      * 图片分类结果下载接口
      * URL: /user/category/download
-     * 文档要求 GET 请求且带 JSON Body
      */
     @GetMapping("/category/download")
-    public Result categoryDownload(@RequestBody Map<String, Object> params) {
+    public Result categoryDownload(@RequestParam String username, @RequestParam Long taskId) {
         try {
-            String username = (String) params.get("username");
-            // 兼容处理 idNum 可能是 String 或 Integer
-            Object idNumObj = params.get("idNum");
-            Integer idNum;
-            if (idNumObj instanceof String) {
-                idNum = Integer.parseInt((String) idNumObj);
-            } else {
-                idNum = (Integer) idNumObj;
-            }
-
-            Map<String, Object> data = categoryService.categoryDownload(username, idNum);
+            Map<String, Object> data = categoryService.categoryDownload(username, taskId);
             return Result.success(data);
         } catch (Exception e) {
             log.error("下载分类结果异常", e);

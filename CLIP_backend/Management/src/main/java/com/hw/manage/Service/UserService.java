@@ -11,7 +11,7 @@ import java.util.List;
 public interface UserService {
     public void changeuserInfo(User user);
 
-    public Integer uploadmatch(Descriptiondto descriptiondto);
+    public Long uploadmatch(Descriptiondto descriptiondto);
 
     public List<String> downloadmatch(Sequery sequery)throws  Exception;
 }

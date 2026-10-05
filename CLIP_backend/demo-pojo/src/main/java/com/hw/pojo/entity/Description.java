@@ -2,19 +2,18 @@ package com.hw.pojo.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 @Data
 @AllArgsConstructor
-@RequiredArgsConstructor
+@NoArgsConstructor
 public class Description {
+    private Long id;//主键Id
+    private Long userId;
     private String content;
-    private LocalDateTime createTime;
-    private LocalDateTime updateTime;
-    private Integer userId;
-    private Integer id;//主键Id
-    private Integer idNum;//描述IdidNum
-
+    private String textType;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

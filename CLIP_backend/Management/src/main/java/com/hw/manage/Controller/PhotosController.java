@@ -3,7 +3,6 @@ package com.hw.manage.Controller;
 import com.hw.manage.Service.PhotosService;
 import com.hw.pojo.query.Pagequery;
 import com.hw.pojo.query.Result;
-import jakarta.websocket.server.PathParam;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
