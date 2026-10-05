@@ -32,6 +32,7 @@ node_modules/
 #AI 工具
 CLAUDE.md
 AGENT.md
+.claude/
 
 #与代码无关的文件
 *.docx
