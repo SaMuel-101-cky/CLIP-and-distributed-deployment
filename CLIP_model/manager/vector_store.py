@@ -120,10 +120,14 @@ class ChromaVectorStore:
             hits.append(VectorSearchHit(
                 photo_id=int(metadata["photo_id"]),
                 score=round(1.0 - distance, 10),
-                rank_no=len(hits) + 1,
+                rank_no=0,
             ))
 
-        return sorted(hits, key=lambda item: item.score, reverse=True)
+        sorted_hits = sorted(hits, key=lambda item: item.score, reverse=True)
+        return [
+            VectorSearchHit(photo_id=hit.photo_id, score=hit.score, rank_no=rank)
+            for rank, hit in enumerate(sorted_hits, start=1)
+        ]
 
     def has_user_images(self, user_id) -> bool:
         if not self.config.enabled or self.collection is None:

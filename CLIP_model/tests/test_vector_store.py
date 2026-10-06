@@ -135,6 +135,26 @@ class VectorStoreTest(unittest.TestCase):
             VectorSearchHit(photo_id=12, score=0.6, rank_no=2),
         ], hits)
 
+    def test_query_reassigns_ranks_after_score_sort(self):
+        from manager.vector_store import ChromaVectorStore, VectorStoreConfig, VectorSearchHit
+
+        collection = FakeCollection()
+        collection.query_response = {
+            "metadatas": [[{"photo_id": 11}, {"photo_id": 12}]],
+            "distances": [[0.4, 0.1]],
+        }
+        store = ChromaVectorStore(
+            VectorStoreConfig(True, "./tmp_chroma", "clip_image_embeddings", "clip-vit-l-14", True),
+            client_factory=lambda persist_dir: FakeClient(collection),
+        )
+
+        hits = store.query_images(user_id=7, query_embedding=np.array([0.1, 0.2], dtype=np.float32), top_k=2)
+
+        self.assertEqual([
+            VectorSearchHit(photo_id=12, score=0.9, rank_no=1),
+            VectorSearchHit(photo_id=11, score=0.6, rank_no=2),
+        ], hits)
+
     def test_has_user_images_uses_user_filter(self):
         from manager.vector_store import ChromaVectorStore, VectorStoreConfig
 
