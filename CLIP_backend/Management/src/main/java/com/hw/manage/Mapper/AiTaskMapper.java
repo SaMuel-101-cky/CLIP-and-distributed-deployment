@@ -32,6 +32,9 @@ public interface AiTaskMapper {
     @Select("SELECT count(*) FROM ai_task_photos WHERE task_id = #{taskId} AND photo_id = #{photoId}")
     Integer countTaskPhoto(@Param("taskId") Long taskId, @Param("photoId") Long photoId);
 
+    @Select("SELECT count(*) FROM ai_task_photos WHERE task_id = #{taskId}")
+    Integer countTaskPhotos(@Param("taskId") Long taskId);
+
     @Insert("INSERT INTO ai_task_descriptions(task_id, description_id) VALUES(#{taskId}, #{descriptionId})")
     void addDescription(@Param("taskId") Long taskId, @Param("descriptionId") Long descriptionId);
 }
