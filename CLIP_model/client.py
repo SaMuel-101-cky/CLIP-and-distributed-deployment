@@ -13,9 +13,11 @@ from manager.ai_task_payload import (
     build_category_matches,
     build_smoke_matches,
     build_task_result_payload,
-    build_text_search_matches,
 )
 from manager.backend_client import post_task_result
+from manager.vector_search import build_text_search_matches_with_vector_store
+from manager.vector_store import ChromaVectorStore, VectorStoreConfig
+from utils.embedding import encode_images, encode_texts
 
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -28,6 +30,44 @@ DEVICE, local_ip, server_ip = get_device_and_ip()
 logger = logging.getLogger('client')
 logger = configure_logger(logger, __file__, propagate=False)
 
+
+def build_vector_store_from_config(config_module, logger=None):
+    if not config_module.VECTOR_STORE_ENABLED:
+        return None
+
+    vector_config = VectorStoreConfig(
+        enabled=config_module.VECTOR_STORE_ENABLED,
+        persist_dir=config_module.CHROMA_PERSIST_DIR,
+        collection_name=config_module.CHROMA_COLLECTION,
+        embedding_model=config_module.EMBEDDING_MODEL_NAME,
+        fallback_enabled=config_module.VECTOR_SEARCH_FALLBACK,
+    )
+    try:
+        return ChromaVectorStore(vector_config)
+    except Exception as exc:
+        if logger:
+            logger.exception("[VectorStore] 初始化 Chroma 失败，将使用暴力匹配 fallback: %s", exc)
+        return None
+
+
+def try_upsert_image_embeddings(vector_store, user_id, photo_id_list, photo_list, logger=None):
+    if vector_store is None:
+        return
+    if user_id is None:
+        if logger:
+            logger.warning("[VectorStore] 缺少 userId，跳过图片向量写入")
+        return
+
+    try:
+        image_embeddings = encode_images(model, photo_list)
+        vector_store.upsert_image_embeddings(user_id, photo_id_list, photo_list, image_embeddings)
+        if logger:
+            logger.info("[VectorStore] 图片向量已写入 Chroma: user_id=%s count=%s", user_id, len(photo_id_list))
+    except Exception as exc:
+        if logger:
+            logger.exception("[VectorStore] 图片向量写入失败，分类任务继续执行: %s", exc)
+
+
 state_dict = torch.jit.load('ViT-L-14.pt', map_location='cpu').state_dict()
 
 offloader = OffloadHandler(
@@ -38,6 +78,7 @@ offloader = OffloadHandler(
 )
 
 model = build_model(state_dict, offload_handler=offloader).to(DEVICE).eval()
+vector_store = build_vector_store_from_config(cfg, logger)
 
 print("模型加载完成")
 
@@ -82,10 +123,12 @@ def predict_():
 
 def func1_process(
     task_id,
+    user_id,
     photo_list,
     photo_id_list,
     description_list,
     description_id_list,
+    vector_store,
     logger
  ):
 
@@ -96,6 +139,7 @@ def func1_process(
                 for photo_id in photo_id_list
             ]
         else:
+            try_upsert_image_embeddings(vector_store, user_id, photo_id_list, photo_list, logger)
             logits_per_image, _ = predict(model, photo_list, description_list)
             probs = torch.softmax(logits_per_image, dim=-1)
             probs_np = probs.cpu().numpy()
@@ -119,6 +163,7 @@ def receive_category_task():
         description_list = data.get("descriptionsList")
         description_id_list = data.get("descriptionsId")
         task_id = data.get("taskId")
+        user_id = data.get("userId")
 
         if not (photo_list and photo_id_list and description_list and description_id_list) or task_id is None:
             return jsonify(
@@ -137,7 +182,7 @@ def receive_category_task():
     try:
         thread = threading.Thread(
             target = func1_process,
-            args=(task_id, photo_list, photo_id_list, description_list, description_id_list, logger)
+            args=(task_id, user_id, photo_list, photo_id_list, description_list, description_id_list, vector_store, logger)
         )
         thread.start()
 
@@ -150,10 +195,12 @@ def receive_category_task():
 
 def func2_process(
         task_id,
+        user_id,
         photo_list,
         photo_id_list,
         description,
         description_id,
+        vector_store,
         logger
 ):
     try:
@@ -165,14 +212,18 @@ def func2_process(
                 top_k=cfg.TEXT_SEARCH_TOP_K,
             )
         else:
-            _, logits_per_text = predict(model, photo_list, [description])
-            probs = torch.softmax(logits_per_text, dim=-1)
-            probs_np = probs.cpu().numpy()
-            matches = build_text_search_matches(
-                probs_np,
-                photo_id_list,
-                description_id,
+            matches = build_text_search_matches_with_vector_store(
+                vector_store=vector_store,
+                model=model,
+                user_id=user_id,
+                description=description,
+                description_id=description_id,
+                photo_list=photo_list,
+                photo_id_list=photo_id_list,
                 top_k=cfg.TEXT_SEARCH_TOP_K,
+                fallback_enabled=cfg.VECTOR_SEARCH_FALLBACK,
+                encode_texts_fn=encode_texts,
+                predict_fn=predict,
             )
         payload = build_task_result_payload(task_id, "SUCCESS", matches)
         post_task_result(task_id, payload, cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, logger=logger)
@@ -189,12 +240,13 @@ def search_photo_by_description():
         task_id = data.get("taskId", None)
         description = data.get("description", None)
         description_id = data.get("descriptionId", None)
+        user_id = data.get("userId", None)
         photo_list = data.get("photosList", None)
         photo_id_list = data.get("photosId", None)
 
-        if task_id is None or description is None or description_id is None or not photo_list or not photo_id_list:
+        if task_id is None or user_id is None or description is None or description_id is None or not photo_list or not photo_id_list:
             return jsonify(
-                {"code": 0, "message": "参数不完整：taskId, description, descriptionId, photosList, photosId 均为必须"}), 400
+                {"code": 0, "message": "参数不完整：taskId, userId, description, descriptionId, photosList, photosId 均为必须"}), 400
         if len(photo_list) != len(photo_id_list):
             return jsonify(
                 {"code": 0, "message": "图片路径列表和图片ID列表长度不一致"}), 400
@@ -204,7 +256,7 @@ def search_photo_by_description():
         return jsonify({"code": 0, "message": "请求数据格式错误"}), 400
     thread = threading.Thread(
         target = func2_process,
-        args = (task_id, photo_list, photo_id_list, description, description_id, logger)
+        args = (task_id, user_id, photo_list, photo_id_list, description, description_id, vector_store, logger)
     )
     thread.start()
 

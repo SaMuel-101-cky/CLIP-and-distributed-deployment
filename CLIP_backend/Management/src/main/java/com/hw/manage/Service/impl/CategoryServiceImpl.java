@@ -109,6 +109,7 @@ public class CategoryServiceImpl implements CategoryService {
 
         // 5. 调用 AI 接口
         AiUploadDto uploadDto = new AiUploadDto();
+        uploadDto.setUserId(userId);
         uploadDto.setPhotosList(photoPaths);
         uploadDto.setPhotosId(photoIds);
         uploadDto.setDescriptionsList(descriptions);
