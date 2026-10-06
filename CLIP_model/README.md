@@ -182,6 +182,13 @@ cp .env.example .env
 | `AI_CALLBACK_TOKEN` | AI 回写后端时使用的共享密钥，需与后端一致 | `change-me` |
 | `TEXT_SEARCH_TOP_K` | 以文搜图返回 TopK 图片数 | `5` |
 | `CLIP_SMOKE_MODE` | 本地联调开关，`true` 时跳过重模型推理，仅验证后端/回调/数据库链路 | `false` |
+| `VECTOR_STORE_ENABLED` | 是否启用 Chroma 图片向量写入与查询 | `true` |
+| `CHROMA_PERSIST_DIR` | Chroma 本地持久化目录，可删除后由图片重新构建 | `./chroma_data` |
+| `CHROMA_COLLECTION` | Chroma 图片向量 collection 名称 | `clip_image_embeddings` |
+| `EMBEDDING_MODEL_NAME` | 向量 ID 与 metadata 中使用的模型命名空间 | `clip-vit-l-14` |
+| `VECTOR_SEARCH_FALLBACK` | Chroma 不可用或无结果时是否回退到暴力 CLIP 匹配 | `true` |
+
+Chroma 只保存可重建的向量索引；业务数据仍以 Java 后端的 MySQL 为准。`CLIP_SMOKE_MODE=true` 会跳过重模型推理和 Chroma 链路，仅用于验证后端/回调/数据库 plumbing。
 
 **卸载开关（按需开启）：**
 

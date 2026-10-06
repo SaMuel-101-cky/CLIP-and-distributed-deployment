@@ -158,6 +158,13 @@ Model:
 | `AI_CALLBACK_TOKEN` | unset | Must match backend when configured |
 | `TEXT_SEARCH_TOP_K` | `5` | Text search TopK |
 | `CLIP_SMOKE_MODE` | `false` | Skip heavy model inference for smoke tests |
+| `VECTOR_STORE_ENABLED` | `true` | Enable Chroma image-vector upsert and text search |
+| `CHROMA_PERSIST_DIR` | `./chroma_data` | Local Chroma persistence directory |
+| `CHROMA_COLLECTION` | `clip_image_embeddings` | Chroma image embedding collection |
+| `EMBEDDING_MODEL_NAME` | `clip-vit-l-14` | Vector id and metadata namespace |
+| `VECTOR_SEARCH_FALLBACK` | `true` | Fall back to brute-force CLIP scoring when Chroma is unavailable or empty |
+
+Chroma data is rebuildable local index state. If `CHROMA_PERSIST_DIR` is deleted, upload/category tasks can regenerate image vectors from MySQL photo metadata and local image files.
 
 ## Verification Commands
 
@@ -166,7 +173,7 @@ Model tests:
 ```powershell
 cd D:\CLIP
 D:\Anaconda\envs\CLIP\python.exe -m unittest discover -s CLIP_model\tests
-D:\Anaconda\envs\CLIP\python.exe -m py_compile CLIP_model\client.py CLIP_model\utils\config.py CLIP_model\utils\pred.py CLIP_model\manager\ai_task_payload.py CLIP_model\manager\backend_client.py
+D:\Anaconda\envs\CLIP\python.exe -m py_compile CLIP_model\client.py CLIP_model\server.py CLIP_model\utils\config.py CLIP_model\utils\pred.py CLIP_model\utils\embedding.py CLIP_model\manager\ai_task_payload.py CLIP_model\manager\backend_client.py CLIP_model\manager\vector_store.py CLIP_model\manager\vector_search.py
 ```
 
 Backend tests:
@@ -189,6 +196,8 @@ mvn -q -DskipTests package
 
 - Maven fails with database connection errors: confirm `MYSQL_HOST`, `MYSQL_PASSWORD`, and that `photo_system` was initialized from `schema.sql`.
 - `/health` shows CPU: the wrong Python environment or CPU-only PyTorch is being used.
+- Chroma import or startup fails: keep `VECTOR_SEARCH_FALLBACK=true` so text search can use brute-force CLIP scoring while the local Chroma dependency is repaired.
+- Chroma returns no results: confirm at least one non-smoke upload/category task has run for that user so image vectors exist.
 - AI task remains `RUNNING`: the model process likely crashed or was stopped before callback. Inspect model logs, then mark/retry the task intentionally.
 - Uploaded images are inaccessible under `/images/...`: check `CLIP_UPLOAD_DIR`, `file.access-path`, and whether the backend was started from `CLIP_backend/Management`.
 - Do not use Redis as the only recycle-bin state. Soft-delete fields in MySQL are the durable source of truth.

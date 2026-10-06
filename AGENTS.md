@@ -66,6 +66,11 @@ Model:
 - `AI_CALLBACK_TOKEN`: must match backend if configured.
 - `TEXT_SEARCH_TOP_K`: text search result count, default `5`.
 - `CLIP_SMOKE_MODE`: `true` skips heavy CLIP inference and returns deterministic test matches.
+- `VECTOR_STORE_ENABLED`: enables Chroma image-vector upsert/search, default `true`.
+- `CHROMA_PERSIST_DIR`: local Chroma index directory, default `./chroma_data`.
+- `CHROMA_COLLECTION`: Chroma image embedding collection, default `clip_image_embeddings`.
+- `EMBEDDING_MODEL_NAME`: vector id/metadata namespace, default `clip-vit-l-14`.
+- `VECTOR_SEARCH_FALLBACK`: fallback to brute-force CLIP scoring when Chroma is unavailable or empty, default `true`.
 
 See `docs/local-runbook.md` for exact local startup and smoke test commands.
 
@@ -94,6 +99,8 @@ mvn -q -DskipTests package
 - Use `D:\Anaconda\envs\CLIP\python.exe` for local GPU debugging on this machine.
 - `/health` should report `cuda:0` when CUDA PyTorch is available.
 - Use `CLIP_SMOKE_MODE=true` only for backend/callback/database smoke tests.
+- `CLIP_SMOKE_MODE=true` bypasses heavy inference and should not be used to validate Chroma behavior.
+- Treat Chroma persistence as rebuildable index state; MySQL remains the source of truth.
 - Keep model-backend communication over HTTP.
 - Do not add direct MySQL access back into the model service.
 
@@ -102,7 +109,7 @@ Minimum model verification:
 ```powershell
 cd D:\CLIP
 D:\Anaconda\envs\CLIP\python.exe -m unittest discover -s CLIP_model\tests
-D:\Anaconda\envs\CLIP\python.exe -m py_compile CLIP_model\client.py CLIP_model\utils\config.py CLIP_model\utils\pred.py CLIP_model\manager\ai_task_payload.py CLIP_model\manager\backend_client.py
+D:\Anaconda\envs\CLIP\python.exe -m py_compile CLIP_model\client.py CLIP_model\server.py CLIP_model\utils\config.py CLIP_model\utils\pred.py CLIP_model\utils\embedding.py CLIP_model\manager\ai_task_payload.py CLIP_model\manager\backend_client.py CLIP_model\manager\vector_store.py CLIP_model\manager\vector_search.py
 ```
 
 ## Vector DB Guidance
