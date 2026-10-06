@@ -1,6 +1,19 @@
 import requests
 
 
+def post_embedding_result(task_id, payload, backend_base_url, callback_token=None, post=requests.post, logger=None):
+    url = f"{backend_base_url.rstrip('/')}/ai/tasks/{int(task_id)}/embeddings"
+    headers = {"X-AI-Callback-Token": callback_token} if callback_token else {}
+    response = post(url, json=payload, headers=headers, timeout=10)
+    response.raise_for_status()
+    result = response.json()
+    if result.get("code") != 1:
+        raise RuntimeError(result.get("message") or "backend rejected embedding result")
+    if logger:
+        logger.info("[BackgroundTask] embedding result posted: task_id=%s", task_id)
+    return result
+
+
 def post_task_result(task_id, payload, backend_base_url, callback_token=None, post=requests.post, logger=None):
     url = f"{backend_base_url.rstrip('/')}/ai/tasks/{int(task_id)}/matches"
     headers = {}
