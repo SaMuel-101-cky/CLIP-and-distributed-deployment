@@ -21,6 +21,16 @@ public interface PhotosMapper {
     @Select("SELECT * FROM photos WHERE user_id = #{userId} AND status = 'ACTIVE' ORDER BY created_at DESC")
     List<Photos> listActivePhotoRecords(Long userId);
 
+    @Select({
+            "<script>",
+            "SELECT * FROM photos WHERE user_id = #{userId} AND status = 'ACTIVE' AND id IN",
+            "<foreach collection='photoIds' item='photoId' open='(' separator=',' close=')'>#{photoId}</foreach>",
+            "ORDER BY created_at DESC",
+            "</script>"
+    })
+    List<Photos> listActivePhotoRecordsByIds(@Param("userId") Long userId,
+                                             @Param("photoIds") List<Long> photoIds);
+
     @Select("SELECT access_url FROM photos WHERE user_id = #{userId} AND status = 'DELETED' ORDER BY deleted_at DESC")
     List<String> listDeletedPhotos(Long userId);
 

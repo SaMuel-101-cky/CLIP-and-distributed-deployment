@@ -26,7 +26,7 @@ public interface AiTaskMapper {
                       @Param("status") String status,
                       @Param("errorMessage") String errorMessage);
 
-    @Insert("INSERT INTO ai_task_photos(task_id, photo_id) VALUES(#{taskId}, #{photoId})")
+    @Insert("INSERT IGNORE INTO ai_task_photos(task_id, photo_id) VALUES(#{taskId}, #{photoId})")
     void addPhoto(@Param("taskId") Long taskId, @Param("photoId") Long photoId);
 
     @Insert("INSERT INTO ai_task_descriptions(task_id, description_id) VALUES(#{taskId}, #{descriptionId})")

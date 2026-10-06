@@ -50,3 +50,8 @@ ai:
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:5000}
   callback:
     token: ${AI_CALLBACK_TOKEN:}
+  embedding:
+    model: ${EMBEDDING_MODEL_NAME:clip-vit-l-14}
+  vector:
+    db: ${AI_VECTOR_DB:chroma}
+    collection: ${CHROMA_COLLECTION:clip_image_embeddings}
