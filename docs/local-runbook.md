@@ -2,6 +2,8 @@
 
 This runbook captures the current backend-first CLIP refactor state. The Java backend owns MySQL and file metadata; the Python model service only performs inference and posts results back to the backend.
 
+For a ready-to-import request collection and the recommended manual flow, see [Apifox 后端联调指南](apifox-debugging.md).
+
 ## Prerequisites
 
 - JDK 23

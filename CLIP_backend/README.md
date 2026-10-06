@@ -118,3 +118,4 @@ http://localhost:8080
 - Use HTTP between backend and model service. Do not add WebSocket transport unless explicitly requested.
 - `embedding_records` is durable metadata only; Chroma vectors are rebuildable through `/user/embeddings/backfill`.
 - See `D:\CLIP\docs\local-runbook.md` for local startup, GPU checks, and troubleshooting.
+- See `D:\CLIP\docs\apifox-debugging.md` for an Apifox collection and backend debugging sequence.

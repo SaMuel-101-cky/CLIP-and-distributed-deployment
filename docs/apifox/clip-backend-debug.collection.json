@@ -1,0 +1,109 @@
+{
+  "info": {
+    "name": "CLIP Backend Debug",
+    "description": "Backend-first debugging collection. Import into Apifox, set the variables, then run requests in order.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "baseUrl", "value": "http://127.0.0.1:8080"},
+    {"key": "username", "value": "apifox_demo"},
+    {"key": "password", "value": "change-me"},
+    {"key": "jwt", "value": ""},
+    {"key": "taskId", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "01 Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"phoneNum\": \"13800000000\",\n  \"verificationCode\": \"debug\"\n}"},
+            "url": "{{baseUrl}}/user/register"
+          }
+        },
+        {
+          "name": "Login and save JWT",
+          "event": [{"listen": "test", "script": {"exec": ["const body = pm.response.json();", "if (body.code === 1 && body.data && body.data.token) { pm.collectionVariables.set('jwt', body.data.token); }"]}}],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"},
+            "url": "{{baseUrl}}/user/login"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Photos and AI tasks",
+      "item": [
+        {
+          "name": "Category upload (attach photoList file in Apifox)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}],
+            "body": {"mode": "formdata", "formdata": [
+              {"key": "username", "value": "{{username}}", "type": "text"},
+              {"key": "descriptionList", "value": "[\"cat\", \"dog\"]", "type": "text"},
+              {"key": "photoList", "type": "file", "src": ""}
+            ]},
+            "url": "{{baseUrl}}/user/category/upload"
+          }
+        },
+        {
+          "name": "Text search",
+          "event": [{"listen": "test", "script": {"exec": ["const body = pm.response.json();", "if (body.code === 1) { pm.collectionVariables.set('taskId', String(body.data)); }"]}}],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"username\": \"{{username}}\",\n  \"description\": \"a cat\"\n}"},
+            "url": "{{baseUrl}}/user/match/upload"
+          }
+        },
+        {
+          "name": "Download text-search results",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}],
+            "url": "{{baseUrl}}/user/match/download?username={{username}}&taskId={{taskId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Embedding backfill",
+      "item": [
+        {
+          "name": "Backfill all active photos",
+          "event": [{"listen": "test", "script": {"exec": ["const body = pm.response.json();", "if (body.code === 1 && body.data && body.data.taskId) { pm.collectionVariables.set('taskId', String(body.data.taskId)); }"]}}],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"username\": \"{{username}}\"\n}"},
+            "url": "{{baseUrl}}/user/embeddings/backfill"
+          }
+        },
+        {
+          "name": "Backfill selected active photo IDs",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"username\": \"{{username}}\",\n  \"photoIds\": [11, 12]\n}"},
+            "url": "{{baseUrl}}/user/embeddings/backfill"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Health",
+      "item": [
+        {
+          "name": "Model health",
+          "request": {"method": "GET", "url": "http://127.0.0.1:5000/health"}
+        }
+      ]
+    }
+  ]
+}
