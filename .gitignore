@@ -19,10 +19,12 @@ dist/
 .env
 logs/
 *.log
+.runtime/
 
 # 模型权重
 *.pt
 *.pth
+CLIP_model/chroma_data/
 
 # 系统 / 前端
 .DS_Store
@@ -37,5 +39,6 @@ AGENT.md
 
 #与代码无关的文件
 *.docx
+CLIP_backend/Management/photo_resources/
 photo_resources/test/
 !photo_resources/.gitkeep
