@@ -21,6 +21,7 @@ from manager.metrics import BackfillMetrics, register_metrics_route
 from manager.vector_search import build_text_search_result_with_vector_store
 from manager.vector_store import ChromaVectorStore, VectorStoreConfig
 from utils.embedding import encode_images, encode_texts
+from benchmark.integration import register_benchmark_routes
 
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -64,7 +65,8 @@ def try_upsert_image_embeddings(vector_store, user_id, photo_id_list, photo_list
         return
 
     try:
-        image_embeddings = encode_images(model, photo_list)
+        with model_execution_lock:
+            image_embeddings = encode_images(model, photo_list)
         vector_store.upsert_image_embeddings(user_id, photo_id_list, photo_list, image_embeddings)
         if logger:
             logger.info("[VectorStore] 图片向量已写入 Chroma: user_id=%s count=%s", user_id, len(photo_id_list))
@@ -86,6 +88,15 @@ offloader = OffloadHandler(
 
 model = build_model(state_dict, offload_handler=offloader).to(DEVICE).eval()
 vector_store = build_vector_store_from_config(cfg, logger)
+model_execution_lock = threading.RLock()
+register_benchmark_routes(
+    app=app,
+    model=model,
+    offloader=offloader,
+    predict_fn=predict,
+    default_remote_host=cfg.SERVER_IP,
+    execution_lock=model_execution_lock,
+)
 
 print("模型加载完成")
 
@@ -110,7 +121,8 @@ def predict_():
         return jsonify({"error": "class_names 必须是非空列表"}), 400
 
     try:
-        logits_per_image, _ = predict(model, image_urls, class_names)
+        with model_execution_lock:
+            logits_per_image, _ = predict(model, image_urls, class_names)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -147,7 +159,8 @@ def func1_process(
             ]
         else:
             try_upsert_image_embeddings(vector_store, user_id, photo_id_list, photo_list, logger)
-            logits_per_image, _ = predict(model, photo_list, description_list)
+            with model_execution_lock:
+                logits_per_image, _ = predict(model, photo_list, description_list)
             probs = torch.softmax(logits_per_image, dim=-1)
             probs_np = probs.cpu().numpy()
             matches = build_category_matches(probs_np, photo_id_list, description_id_list)
@@ -160,11 +173,12 @@ def func1_process(
 
 
 def func_embedding_backfill_process(task_id, request_data, vector_store, logger):
-    return run_embedding_backfill_task(
-        task_id, request_data, vector_store, model, encode_images,
-        cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, post_embedding_result,
-        smoke_mode=cfg.CLIP_SMOKE_MODE, logger=logger, metrics=backfill_metrics,
-    )
+    with model_execution_lock:
+        return run_embedding_backfill_task(
+            task_id, request_data, vector_store, model, encode_images,
+            cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, post_embedding_result,
+            smoke_mode=cfg.CLIP_SMOKE_MODE, logger=logger, metrics=backfill_metrics,
+        )
 
 
 @app.route("/embeddings/backfill", methods=["POST"])
@@ -244,19 +258,20 @@ def func2_process(
                 top_k=cfg.TEXT_SEARCH_TOP_K,
             )
         else:
-            search_result = build_text_search_result_with_vector_store(
-                vector_store=vector_store,
-                model=model,
-                user_id=user_id,
-                description=description,
-                description_id=description_id,
-                photo_list=photo_list,
-                photo_id_list=photo_id_list,
-                top_k=cfg.TEXT_SEARCH_TOP_K,
-                fallback_enabled=cfg.VECTOR_SEARCH_FALLBACK,
-                encode_texts_fn=encode_texts,
-                predict_fn=predict,
-            )
+            with model_execution_lock:
+                search_result = build_text_search_result_with_vector_store(
+                    vector_store=vector_store,
+                    model=model,
+                    user_id=user_id,
+                    description=description,
+                    description_id=description_id,
+                    photo_list=photo_list,
+                    photo_id_list=photo_id_list,
+                    top_k=cfg.TEXT_SEARCH_TOP_K,
+                    fallback_enabled=cfg.VECTOR_SEARCH_FALLBACK,
+                    encode_texts_fn=encode_texts,
+                    predict_fn=predict,
+                )
             matches = search_result.matches
             if search_result.source == "CHROMA":
                 logger.info(

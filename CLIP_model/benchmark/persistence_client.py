@@ -11,11 +11,18 @@ class BenchmarkPersistenceClient:
         response.raise_for_status()
 
     def create_run(self, run_id, resolved_plan):
-        self._post("/benchmark/runs", {"runId": run_id, "status": "PENDING", "resolvedPlanJson": __import__("json").dumps(resolved_plan)})
+        self._post("/benchmark/runs", {
+            "runId": run_id,
+            "status": "PENDING",
+            "resolvedPlanJson": __import__("json").dumps(resolved_plan),
+        })
 
     def record_sample(self, run_id, sample):
         allowed = ("sequence_no", "warmup", "total_ms", "success", "error_type")
-        self._post(f"/benchmark/runs/{run_id}/samples", {key: sample.get(key) for key in allowed} | {"runId": run_id})
+        self._post(
+            f"/benchmark/runs/{run_id}/samples",
+            {key: sample.get(key) for key in allowed} | {"runId": run_id},
+        )
 
     def update_run(self, run_id, status, error_type=None):
         self._post(f"/benchmark/runs/{run_id}", {"status": status, "errorType": error_type})

@@ -2,11 +2,11 @@ from statistics import fmean, pstdev
 
 
 def summarize(samples):
-    measured = [s for s in samples if not s["warmup"]]
-    durations = sorted(float(s["total_ms"]) for s in measured if s["success"])
+    measured = [sample for sample in samples if not sample["warmup"]]
+    durations = sorted(float(sample["total_ms"]) for sample in measured if sample["success"])
     count = len(durations)
     total = len(measured)
-    percentile = lambda q: durations[min(count - 1, int((count - 1) * q))] if count else None
+    percentile = lambda quantile: durations[min(count - 1, int((count - 1) * quantile))] if count else None
     return {
         "measured_success_count": count,
         "success_rate": (count / total * 100) if total else 0.0,

@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 
 
-FLAGS = ("visual_attn", "visual_mlp", "text_attn", "text_mlp", "vision_conv", "vision_proj", "text_proj", "complete_encoders", "cos_sim")
+FLAGS = (
+    "visual_attn", "visual_mlp", "text_attn", "text_mlp", "vision_conv",
+    "vision_proj", "text_proj", "complete_encoders", "cos_sim",
+)
 
 
 @dataclass(frozen=True)
