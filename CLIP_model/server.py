@@ -20,6 +20,16 @@ sys.stderr.reconfigure(encoding='utf-8')
 
 app = Flask(__name__)
 
+
+@app.before_request
+def reject_untrusted_or_oversized_offload_requests():
+    """Reject credentials and size violations before JSON/Tensor processing."""
+    if request.headers.get("X-Offload-Token") != config.OFFLOAD_TOKEN or not config.OFFLOAD_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
+    content_length = request.content_length
+    if content_length is not None and content_length > config.OFFLOAD_MAX_PAYLOAD_BYTES:
+        return jsonify({"error": "payload_too_large"}), 413
+
 DEVICE, local_ip, server_ip = get_device_and_ip()
 
 logger = logging.getLogger('server')
@@ -82,6 +92,26 @@ def encode_tensor(tensor_out):
     return base64.b64encode(buffer.getvalue()).decode()
 
 
+def rpc_response(output_str, data_json, server_recv_ts):
+    """Return a correlation-safe response without retaining request content."""
+    request_data = data_json.get("data", "")
+    request_id = data_json.get("request_id", "")
+    total_ms = max(0.0, (time.time() - server_recv_ts) * 1000)
+    return jsonify({
+        "output": output_str,
+        "request_id": request_id,
+        "timings": {
+            "remote_decode_ms": 0.0,
+            "remote_infer_ms": round(total_ms, 3),
+            "remote_encode_ms": 0.0,
+        },
+        "payload_bytes": {
+            "request": len(request_data.encode("utf-8")),
+            "response": len(output_str.encode("utf-8")),
+        },
+    })
+
+
 @app.route('/attention', methods=['POST'])
 def attention():
 
@@ -128,7 +158,7 @@ def attention():
     output_str = base64.b64encode(buffer.getvalue()).decode()
 
 
-    return jsonify({'output': output_str})
+    return rpc_response(output_str, data_json, server_recv_ts)
 
 @app.route('/cos_sim', methods=['POST'])
 def cos_sim():
@@ -162,7 +192,7 @@ def cos_sim():
     torch.save({'output': output.cpu()}, buffer)
     output_str = base64.b64encode(buffer.getvalue()).decode()
 
-    return jsonify({'output': output_str})
+    return rpc_response(output_str, data_json, server_recv_ts)
 
 @app.route('/mlp', methods=['POST'])
 def mlp():
@@ -198,7 +228,7 @@ def mlp():
     torch.save({'output': output.cpu()}, buffer)
     output_str = base64.b64encode(buffer.getvalue()).decode()
 
-    return jsonify({'output': output_str})
+    return rpc_response(output_str, data_json, server_recv_ts)
 
 @app.route('/vision_conv', methods=['POST'])
 def vision_conv():
@@ -231,7 +261,7 @@ def vision_conv():
     torch.save({'output': output.cpu()}, buffer)
     output_str = base64.b64encode(buffer.getvalue()).decode()
 
-    return jsonify({'output': output_str})
+    return rpc_response(output_str, data_json, server_recv_ts)
 
 @app.route('/text_projection', methods=['POST'])
 def text_projection():
@@ -264,7 +294,7 @@ def text_projection():
     torch.save({'output': output.cpu()}, buffer)
     output_str = base64.b64encode(buffer.getvalue()).decode()
 
-    return jsonify({'output': output_str})
+    return rpc_response(output_str, data_json, server_recv_ts)
 
 @app.route('/visual_projection', methods=['POST'])
 def visual_projection():
@@ -297,7 +327,7 @@ def visual_projection():
     torch.save({'output': output.cpu()}, buffer)
     output_str = base64.b64encode(buffer.getvalue()).decode()
 
-    return jsonify({'output': output_str})
+    return rpc_response(output_str, data_json, server_recv_ts)
 
 @app.route('/encoder_blocks', methods=['POST'])
 def encoder_blocks():
@@ -336,7 +366,7 @@ def encoder_blocks():
     torch.save({'output': output.cpu()}, buffer)
     output_str = base64.b64encode(buffer.getvalue()).decode()
 
-    return jsonify({'output': output_str})
+    return rpc_response(output_str, data_json, server_recv_ts)
 
 @app.route('/complete_encoders', methods=['POST'])
 def complete_encoders():
@@ -384,7 +414,7 @@ def complete_encoders():
     }, buffer)
     output_str = base64.b64encode(buffer.getvalue()).decode()
 
-    return jsonify({'output': output_str})
+    return rpc_response(output_str, data_json, server_recv_ts)
 
 @app.route('/health', methods=['GET'])            #客户端测试服务器健康状态的接口
 def health_check():

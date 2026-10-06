@@ -79,7 +79,9 @@ offloader = OffloadHandler(
     server_ip=cfg.SERVER_IP,
     server_port=cfg.SERVER_PORT,
     config=cfg.OFFLOAD_CONFIG,
-    logger=logger
+    logger=logger,
+    token=cfg.OFFLOAD_TOKEN,
+    request_timeout_seconds=cfg.OFFLOAD_REQUEST_TIMEOUT_SECONDS,
 )
 
 model = build_model(state_dict, offload_handler=offloader).to(DEVICE).eval()

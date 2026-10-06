@@ -5,14 +5,33 @@ import base64
 import requests
 import time
 import logging
+from dataclasses import dataclass
+from typing import Callable, Optional
+from uuid import uuid4
+
+
+@dataclass(frozen=True)
+class OffloadRequestMetrics:
+    endpoint: str
+    serialize_ms: float
+    http_rtt_ms: float
+    deserialize_ms: float
+    request_bytes: int
+    response_bytes: int
+    remote_decode_ms: float | None
+    remote_infer_ms: float | None
+    remote_encode_ms: float | None
 
 
 class OffloadHandler:
-    def __init__(self, server_ip, server_port, config, logger=None):
+    def __init__(self, server_ip, server_port, config, logger=None, token="", metrics_sink: Optional[Callable[[OffloadRequestMetrics], None]] = None, request_timeout_seconds=30, execution_plan=None):
         self.server_ip = server_ip
         self.server_port = server_port
-        self.config = config
+        self.config = getattr(execution_plan, "offload", config)
         self.logger = logger or logging.getLogger('client')
+        self.token = token
+        self.metrics_sink = metrics_sink
+        self.request_timeout_seconds = request_timeout_seconds
 
     def should_offload(self, module_type: str) -> bool:
         """
@@ -41,21 +60,25 @@ class OffloadHandler:
         """
         try:
             # 1. 序列化
+            serialize_started = time.perf_counter()
             buffer = io.BytesIO()
             # 将 tensor 转为 cpu 以便序列化
             cpu_data = {k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in data_dict.items()}
             torch.save(cpu_data, buffer)
             data_str = base64.b64encode(buffer.getvalue()).decode()
+            serialize_ms = (time.perf_counter() - serialize_started) * 1000
 
             # 2. 发送请求
             url = f"http://{self.server_ip}:{self.server_port}/{endpoint}"
             payload = {
                 "data": data_str,
-                "client_send_ts": time.time()
+                "request_id": str(uuid4()),
+                "client_send_ts": time.time(),
             }
 
             t_start = time.perf_counter()
-            resp = requests.post(url, json=payload, timeout=30)
+            headers = {"X-Offload-Token": self.token} if self.token else {}
+            resp = requests.post(url, json=payload, headers=headers, timeout=self.request_timeout_seconds)
             resp.raise_for_status()
             resp_json = resp.json()
             http_ms = (time.perf_counter() - t_start) * 1000
@@ -64,12 +87,33 @@ class OffloadHandler:
                 self.logger.info(f"[{endpoint}] server={self.server_ip} rtt={http_ms:.2f}ms type=传输")
 
             # 3. 反序列化
+            deserialize_started = time.perf_counter()
             output_str = resp_json['output']
             output_buffer = io.BytesIO(base64.b64decode(output_str))
-            output_dict = torch.load(output_buffer)
-
-            # 移回原设备
-            return output_dict['output'].to(device)
+            output_dict = torch.load(output_buffer, weights_only=True)
+            if "output" in output_dict:
+                output = output_dict["output"].to(device)
+            else:
+                output = {
+                    key: value.to(device) if isinstance(value, torch.Tensor) else value
+                    for key, value in output_dict.items()
+                }
+            deserialize_ms = (time.perf_counter() - deserialize_started) * 1000
+            if self.metrics_sink:
+                timings = resp_json.get("timings", {})
+                sizes = resp_json.get("payload_bytes", {})
+                self.metrics_sink(OffloadRequestMetrics(
+                    endpoint=endpoint,
+                    serialize_ms=serialize_ms,
+                    http_rtt_ms=http_ms,
+                    deserialize_ms=deserialize_ms,
+                    request_bytes=int(sizes.get("request", len(data_str.encode("utf-8")))),
+                    response_bytes=int(sizes.get("response", len(output_str.encode("utf-8")))),
+                    remote_decode_ms=timings.get("remote_decode_ms"),
+                    remote_infer_ms=timings.get("remote_infer_ms"),
+                    remote_encode_ms=timings.get("remote_encode_ms"),
+                ))
+            return output
 
         except Exception as e:
             if fallback_fn is not None:

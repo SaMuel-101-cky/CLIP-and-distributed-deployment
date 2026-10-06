@@ -201,7 +201,7 @@ class CLIP(nn.Module):
                 device=image.device,
                 fallback_fn=lambda: self._complete_encoders_local(image, text)
             )
-            return result['logits_per_image'], result['logits_per_text']  # 假设返回字典
+            image_features, text_features = result["image_features"], result["text_features"]
 
         # image_features = self.encode_image(image)
         # text_features = self.encode_text(text)
