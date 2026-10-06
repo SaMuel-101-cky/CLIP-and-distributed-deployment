@@ -8,6 +8,7 @@ import com.hw.pojo.dto.AiEmbeddingRecordDto;
 import com.hw.pojo.dto.AiEmbeddingResultDto;
 import com.hw.pojo.entity.AiTask;
 import com.hw.pojo.entity.EmbeddingRecord;
+import com.hw.manage.observability.AiTaskMetrics;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -35,6 +36,7 @@ class EmbeddingBackfillCallbackTest {
     @Mock private AiTaskMapper aiTaskMapper;
     @Mock private EmbeddingRecordMapper embeddingRecordMapper;
     @Mock private RestTemplate restTemplate;
+    @Mock private AiTaskMetrics aiTaskMetrics;
 
     @Test
     void saveEmbeddingResultUpsertsRecordsAndMarksSuccess() {
@@ -95,7 +97,7 @@ class EmbeddingBackfillCallbackTest {
     }
 
     private EmbeddingBackfillServiceImpl service() {
-        return new EmbeddingBackfillServiceImpl(userMapper, photosMapper, aiTaskMapper, restTemplate, embeddingRecordMapper);
+        return new EmbeddingBackfillServiceImpl(userMapper, photosMapper, aiTaskMapper, restTemplate, embeddingRecordMapper, aiTaskMetrics);
     }
 
     private AiTask task(String type) {

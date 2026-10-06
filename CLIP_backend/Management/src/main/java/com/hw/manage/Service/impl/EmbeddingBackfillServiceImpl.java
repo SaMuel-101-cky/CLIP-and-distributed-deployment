@@ -5,6 +5,7 @@ import com.hw.manage.Mapper.EmbeddingRecordMapper;
 import com.hw.manage.Mapper.PhotosMapper;
 import com.hw.manage.Mapper.UserMapper;
 import com.hw.manage.Service.EmbeddingBackfillService;
+import com.hw.manage.observability.AiTaskMetrics;
 import com.hw.pojo.dto.AiEmbeddingBackfillDto;
 import com.hw.pojo.dto.AiEmbeddingRecordDto;
 import com.hw.pojo.dto.AiEmbeddingResultDto;
@@ -38,6 +39,7 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
     private final AiTaskMapper aiTaskMapper;
     private final RestTemplate restTemplate;
     private final EmbeddingRecordMapper embeddingRecordMapper;
+    private final AiTaskMetrics aiTaskMetrics;
 
     @Value("${ai.service.base-url:http://localhost:5000}")
     private String aiServiceBaseUrl;
@@ -102,10 +104,12 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
                 throw new IllegalStateException("AI端返回失败: " + message);
             }
             aiTaskMapper.updateStatus(task.getId(), "RUNNING", null);
+            aiTaskMetrics.recordTransition(task.getTaskType(), "RUNNING");
             log.info("event=embedding_backfill.dispatched task_id={} user_id={} photo_count={} status=RUNNING",
                     task.getId(), user.getId(), photoIds.size());
         } catch (RuntimeException e) {
             aiTaskMapper.updateStatus(task.getId(), "FAILED", e.getMessage());
+            aiTaskMetrics.recordTransition(task.getTaskType(), "FAILED");
             log.info("event=embedding_backfill.failed task_id={} user_id={} photo_count={} status=FAILED",
                     task.getId(), user.getId(), photoIds.size());
             throw e;
@@ -149,6 +153,7 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
         }
         if ("FAILED".equalsIgnoreCase(result.getStatus())) {
             aiTaskMapper.updateStatus(taskId, "FAILED", result.getErrorMessage());
+            recordTerminalMetrics(task, "FAILED");
             logTerminal("embedding_backfill.failed", task, "FAILED", 0);
             return;
         }
@@ -172,8 +177,10 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
             entity.setDim(record.getDim());
             entity.setStatus(record.getStatus());
             embeddingRecordMapper.upsert(entity);
+            aiTaskMetrics.recordEmbeddingUpserts(entity.getEmbeddingModel(), entity.getVectorDb(), entity.getStatus(), 1);
         }
         aiTaskMapper.updateStatus(taskId, "SUCCESS", null);
+        recordTerminalMetrics(task, "SUCCESS");
         logTerminal("embedding_backfill.completed", task, "SUCCESS", result.getRecords().size());
     }
 
@@ -202,5 +209,13 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
         long durationMs = Math.max(0, Duration.between(task.getCreatedAt(), java.time.LocalDateTime.now()).toMillis());
         log.info("event={} task_id={} user_id={} status={} photo_count={} duration_ms={}",
                 event, task.getId(), task.getUserId(), status, photoCount, durationMs);
+    }
+
+    private void recordTerminalMetrics(AiTask task, String status) {
+        aiTaskMetrics.recordTransition(task.getTaskType(), status);
+        if (task.getCreatedAt() != null) {
+            aiTaskMetrics.recordTerminalDuration(task.getTaskType(), status,
+                    Duration.ofMillis(Math.max(0, Duration.between(task.getCreatedAt(), java.time.LocalDateTime.now()).toMillis())));
+        }
     }
 }

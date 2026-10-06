@@ -34,7 +34,7 @@ def process_embedding_backfill(vector_store, model, request_data, encode_images_
 
 def run_embedding_backfill_task(task_id, request_data, vector_store, model, encode_images_fn,
                                 backend_base_url, callback_token, post_embedding_result_fn,
-                                smoke_mode=False, logger=None) -> dict:
+                                smoke_mode=False, logger=None, metrics=None) -> dict:
     request = validate_backfill_request(request_data)
     started_at = time.monotonic()
     if logger:
@@ -53,9 +53,14 @@ def run_embedding_backfill_task(task_id, request_data, vector_store, model, enco
             "event=%s task_id=%s user_id=%s photo_count=%s status=%s duration_ms=%s",
             event, task_id, request["userId"], len(request["photosId"]), payload["status"], duration_ms,
         )
+    if metrics:
+        outcome = "success" if payload["status"] == "SUCCESS" else ("smoke_rejected" if smoke_mode else "failed")
+        metrics.record_worker(outcome, len(request["photosId"]), duration_ms / 1000)
     try:
         post_embedding_result_fn(task_id, payload, backend_base_url, callback_token, logger=logger)
     except Exception as error:
+        if metrics:
+            metrics.record_callback_failure()
         if logger:
             logger.error("event=embedding_backfill.callback_failed task_id=%s error_type=%s",
                          task_id, type(error).__name__)

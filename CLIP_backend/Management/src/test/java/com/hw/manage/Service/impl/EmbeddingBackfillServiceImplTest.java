@@ -10,6 +10,7 @@ import com.hw.pojo.entity.AiTask;
 import com.hw.pojo.entity.Photos;
 import com.hw.pojo.entity.User;
 import com.hw.pojo.query.Result;
+import com.hw.manage.observability.AiTaskMetrics;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -51,6 +52,8 @@ class EmbeddingBackfillServiceImplTest {
     private EmbeddingRecordMapper embeddingRecordMapper;
     @Mock
     private RestTemplate restTemplate;
+    @Mock
+    private AiTaskMetrics aiTaskMetrics;
 
     @Test
     void startBackfillUsesAllActivePhotosWhenPhotoIdsAreMissing() {
@@ -143,7 +146,7 @@ class EmbeddingBackfillServiceImplTest {
 
     private EmbeddingBackfillServiceImpl service() {
         EmbeddingBackfillServiceImpl service = new EmbeddingBackfillServiceImpl(
-                userMapper, photosMapper, aiTaskMapper, restTemplate, embeddingRecordMapper);
+                userMapper, photosMapper, aiTaskMapper, restTemplate, embeddingRecordMapper, aiTaskMetrics);
         ReflectionTestUtils.setField(service, "aiServiceBaseUrl", "http://localhost:5000");
         ReflectionTestUtils.setField(service, "embeddingModel", "clip-vit-l-14");
         ReflectionTestUtils.setField(service, "vectorDb", "chroma");

@@ -104,6 +104,27 @@
           "request": {"method": "GET", "url": "http://127.0.0.1:5000/health"}
         }
       ]
+    },
+    {
+      "name": "05 Authenticated observability",
+      "item": [
+        {
+          "name": "Get my AI task status",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}],
+            "url": "{{baseUrl}}/user/ai-tasks/{{taskId}}"
+          }
+        },
+        {
+          "name": "List my embedding records",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}],
+            "url": "{{baseUrl}}/user/embeddings?status=READY&embeddingModel=clip-vit-l-14&page=1&pageSize=20"
+          }
+        }
+      ]
     }
   ]
 }

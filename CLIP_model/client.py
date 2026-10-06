@@ -17,6 +17,7 @@ from manager.ai_task_payload import (
 from manager.backend_client import post_embedding_result, post_task_result
 from manager.embedding_backfill import run_embedding_backfill_task
 from manager.embedding_backfill_payload import validate_backfill_request
+from manager.metrics import BackfillMetrics, register_metrics_route
 from manager.vector_search import build_text_search_result_with_vector_store
 from manager.vector_store import ChromaVectorStore, VectorStoreConfig
 from utils.embedding import encode_images, encode_texts
@@ -26,11 +27,13 @@ sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
 app = Flask(__name__)
+backfill_metrics = BackfillMetrics()
 
 DEVICE, local_ip, server_ip = get_device_and_ip()
 
 logger = logging.getLogger('client')
 logger = configure_logger(logger, __file__, propagate=False)
+register_metrics_route(app, cfg.METRICS_ENABLED, cfg.METRICS_TOKEN, backfill_metrics)
 
 
 def build_vector_store_from_config(config_module, logger=None):
@@ -158,7 +161,7 @@ def func_embedding_backfill_process(task_id, request_data, vector_store, logger)
     return run_embedding_backfill_task(
         task_id, request_data, vector_store, model, encode_images,
         cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, post_embedding_result,
-        smoke_mode=cfg.CLIP_SMOKE_MODE, logger=logger,
+        smoke_mode=cfg.CLIP_SMOKE_MODE, logger=logger, metrics=backfill_metrics,
     )
 
 

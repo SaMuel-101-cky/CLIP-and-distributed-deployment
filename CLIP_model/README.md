@@ -364,3 +364,6 @@ else:
 ## License
 
 MIT License
+# Metrics
+
+Set `METRICS_ENABLED=true` and a nonempty `METRICS_TOKEN` to enable the internal `GET /metrics` Prometheus endpoint. Scrapes must include `X-Metrics-Token`; missing or invalid tokens return 401, and disabled metrics return 404. Keep it behind private binding or a reverse-proxy/network allowlist.

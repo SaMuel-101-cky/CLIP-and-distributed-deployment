@@ -27,6 +27,8 @@
    - 只传 `username`：回填该用户全部活跃图片；
    - 传 `photoIds`：仅回填指定的、属于该用户且仍为 `ACTIVE` 的图片。
    响应 `data.taskId` 和 `data.photoCount`。真实模型模式下任务应经历 `PENDING → RUNNING → SUCCESS`，并由模型回调写入 `embedding_records`。
+6. **观察任务**：使用 JWT 调用 `GET /user/ai-tasks/{taskId}`；接口只返回当前认证用户拥有的任务。
+7. **观察向量记录**：使用 JWT 调用 `GET /user/embeddings?status=READY&embeddingModel=clip-vit-l-14&page=1&pageSize=20`。
 
 ## 回填请求与预期结果
 
@@ -69,6 +71,7 @@ Content-Type: application/json
 
 - `POST /embeddings/backfill` 是 Java 到 Python 的内部任务载荷，不是用户 API。
 - `POST /ai/tasks/{taskId}/matches` 与 `POST /ai/tasks/{taskId}/embeddings` 是模型回调接口。若配置了 `AI_CALLBACK_TOKEN`，必须带 `X-AI-Callback-Token`；回填回调还会验证任务类型与 task-photo 归属。
+- `GET /actuator/prometheus` 与模型 `GET /metrics` 是受保护的内部监控端点，不应加入 Apifox 公共客户端集合。
 
 要观察异步状态，请查询 MySQL，而不是伪造成功回调：
 
@@ -91,4 +94,3 @@ ORDER BY target_id;
 - **回填提示没有有效图片**：先完成至少一次真实图片的分类上传；软删除图片不会参与回填。
 - **任务 `FAILED` 且错误为 real CLIP mode**：当前使用了 `CLIP_SMOKE_MODE=true`；关闭它后重启模型服务。
 - **任务长期 `RUNNING`**：检查模型服务日志、`BACKEND_BASE_URL`、`AI_CALLBACK_TOKEN` 和 `/health`。
-

@@ -14,6 +14,8 @@ CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data")
 CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "clip_image_embeddings")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "clip-vit-l-14")
 VECTOR_SEARCH_FALLBACK = os.getenv("VECTOR_SEARCH_FALLBACK", "true").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+METRICS_TOKEN = os.getenv("METRICS_TOKEN", "")
 
 
 # TODO: 后续可扩展为逐层粒度的卸载控制。

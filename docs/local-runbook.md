@@ -4,6 +4,16 @@ This runbook captures the current backend-first CLIP refactor state. The Java ba
 
 For a ready-to-import request collection and the recommended manual flow, see [Apifox 后端联调指南](apifox-debugging.md).
 
+## AI task observability and benchmark procedure
+
+Authenticated users can inspect one task with `GET /user/ai-tasks/{taskId}` and page through their own embedding records with `GET /user/embeddings?status=READY&embeddingModel=clip-vit-l-14&page=1&pageSize=20`. Both derive ownership from the JWT; do not supply another user's ID or username.
+
+The Java Prometheus endpoint is `GET /actuator/prometheus` and remains Spring-Security protected. The model endpoint is `GET /metrics`; set `METRICS_ENABLED=true` and a nonempty `METRICS_TOKEN`, then send it in `X-Metrics-Token`. Bind both endpoints privately or protect them with a reverse-proxy/network allowlist: they are internal monitoring endpoints, not public client APIs.
+
+Metrics are `clip_ai_task_transitions_total{task_type,status}`, `clip_ai_task_terminal_duration_seconds{task_type,status}`, `clip_embedding_records_upserted_total{embedding_model,vector_db,status}`, `clip_embedding_backfill_jobs_total{outcome}`, `clip_embedding_backfill_duration_seconds{outcome}`, `clip_embedding_backfill_photos_total{outcome}`, and `clip_embedding_callback_failures_total{outcome}`. Labels are bounded; task/user/photo IDs, queries, paths, and exception text are never labels.
+
+For a reproducible real-mode measurement: record CPU/RAM/disk and GPU state with `nvidia-smi`; disable smoke mode; submit a known image count; poll the task API to a terminal status; scrape both protected exporters; and retain the task ID with matching lifecycle logs. Throughput = successful images / elapsed seconds. Failure rate = failed tasks / terminal tasks. Derive p95 from Prometheus histogram quantiles. GPU utilization is not exported by this implementation.
+
 ## Prerequisites
 
 - JDK 23

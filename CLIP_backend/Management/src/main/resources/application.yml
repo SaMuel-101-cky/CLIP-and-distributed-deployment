@@ -55,3 +55,12 @@ ai:
   vector:
     db: ${AI_VECTOR_DB:chroma}
     collection: ${CHROMA_COLLECTION:clip_image_embeddings}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
