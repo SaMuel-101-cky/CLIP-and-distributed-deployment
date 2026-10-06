@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 
 from manager.embedding_backfill_payload import (
@@ -33,13 +35,28 @@ def process_embedding_backfill(vector_store, model, request_data, encode_images_
 def run_embedding_backfill_task(task_id, request_data, vector_store, model, encode_images_fn,
                                 backend_base_url, callback_token, post_embedding_result_fn,
                                 smoke_mode=False, logger=None) -> dict:
+    request = validate_backfill_request(request_data)
+    started_at = time.monotonic()
+    if logger:
+        logger.info(
+            "event=embedding_backfill.started task_id=%s user_id=%s photo_count=%s",
+            task_id, request["userId"], len(request["photosId"]),
+        )
     if smoke_mode:
         payload = build_embedding_result_payload(task_id, "FAILED", error_message="Embedding backfill requires real CLIP mode")
     else:
-        payload = process_embedding_backfill(vector_store, model, request_data, encode_images_fn, logger)
+        payload = process_embedding_backfill(vector_store, model, request, encode_images_fn, logger)
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+    if logger:
+        event = "embedding_backfill.completed" if payload["status"] == "SUCCESS" else "embedding_backfill.failed"
+        logger.info(
+            "event=%s task_id=%s user_id=%s photo_count=%s status=%s duration_ms=%s",
+            event, task_id, request["userId"], len(request["photosId"]), payload["status"], duration_ms,
+        )
     try:
         post_embedding_result_fn(task_id, payload, backend_base_url, callback_token, logger=logger)
-    except Exception:
+    except Exception as error:
         if logger:
-            logger.exception("Embedding backfill callback failed: task_id=%s", task_id)
+            logger.error("event=embedding_backfill.callback_failed task_id=%s error_type=%s",
+                         task_id, type(error).__name__)
     return payload

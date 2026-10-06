@@ -1,3 +1,4 @@
+import logging
 import unittest
 
 import numpy as np
@@ -37,3 +38,25 @@ class EmbeddingBackfillFlowTest(unittest.TestCase):
                                     post_embedding_result_fn=lambda *args, **kwargs: posted.append(args), smoke_mode=False)
         self.assertEqual(1, posted[0][0])
         self.assertEqual("SUCCESS", posted[0][1]["status"])
+
+    def test_worker_logs_one_terminal_event_and_redacts_callback_token(self):
+        logger = logging.getLogger("embedding-backfill-test")
+        logger.handlers.clear()
+        secret = "callback-token-must-not-appear"
+
+        def callback(*args, **kwargs):
+            raise RuntimeError("callback unavailable")
+
+        with self.assertLogs(logger, level="INFO") as captured:
+            payload = run_embedding_backfill_task(
+                1, {"taskId": 1, "userId": 7, "photosId": [11], "photosList": ["one.png"]},
+                FakeVectorStore(), object(), lambda model, paths: np.ones((1, 3)),
+                "http://backend", secret, callback, smoke_mode=False, logger=logger,
+            )
+
+        messages = "\n".join(captured.output)
+        self.assertEqual("SUCCESS", payload["status"])
+        self.assertEqual(1, messages.count("event=embedding_backfill.started"))
+        self.assertEqual(1, messages.count("event=embedding_backfill.completed"))
+        self.assertIn("event=embedding_backfill.callback_failed", messages)
+        self.assertNotIn(secret, messages)

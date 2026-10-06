@@ -27,6 +27,7 @@ import org.springframework.web.client.RestTemplate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 
 @Service
 @Slf4j
@@ -78,6 +79,8 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
         for (Long photoId : photoIds) {
             aiTaskMapper.addPhoto(task.getId(), photoId);
         }
+        log.info("event=embedding_backfill.created task_id={} user_id={} photo_count={}",
+                task.getId(), user.getId(), photoIds.size());
 
         AiEmbeddingBackfillDto payload = new AiEmbeddingBackfillDto();
         payload.setTaskId(task.getId());
@@ -99,8 +102,12 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
                 throw new IllegalStateException("AI端返回失败: " + message);
             }
             aiTaskMapper.updateStatus(task.getId(), "RUNNING", null);
+            log.info("event=embedding_backfill.dispatched task_id={} user_id={} photo_count={} status=RUNNING",
+                    task.getId(), user.getId(), photoIds.size());
         } catch (RuntimeException e) {
             aiTaskMapper.updateStatus(task.getId(), "FAILED", e.getMessage());
+            log.info("event=embedding_backfill.failed task_id={} user_id={} photo_count={} status=FAILED",
+                    task.getId(), user.getId(), photoIds.size());
             throw e;
         }
 
@@ -142,6 +149,7 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
         }
         if ("FAILED".equalsIgnoreCase(result.getStatus())) {
             aiTaskMapper.updateStatus(taskId, "FAILED", result.getErrorMessage());
+            logTerminal("embedding_backfill.failed", task, "FAILED", 0);
             return;
         }
         if (!"SUCCESS".equalsIgnoreCase(result.getStatus())) {
@@ -166,6 +174,7 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
             embeddingRecordMapper.upsert(entity);
         }
         aiTaskMapper.updateStatus(taskId, "SUCCESS", null);
+        logTerminal("embedding_backfill.completed", task, "SUCCESS", result.getRecords().size());
     }
 
     private void validateEmbeddingRecord(AiTask task, AiEmbeddingRecordDto record) {
@@ -182,5 +191,16 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
         if (count == null || count == 0) {
             throw new IllegalArgumentException("图片不属于该AI任务: " + record.getPhotoId());
         }
+    }
+
+    private void logTerminal(String event, AiTask task, String status, int photoCount) {
+        if (task.getCreatedAt() == null) {
+            log.info("event={} task_id={} user_id={} status={} photo_count={}",
+                    event, task.getId(), task.getUserId(), status, photoCount);
+            return;
+        }
+        long durationMs = Math.max(0, Duration.between(task.getCreatedAt(), java.time.LocalDateTime.now()).toMillis());
+        log.info("event={} task_id={} user_id={} status={} photo_count={} duration_ms={}",
+                event, task.getId(), task.getUserId(), status, photoCount, durationMs);
     }
 }

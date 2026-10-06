@@ -8,12 +8,16 @@ import com.hw.pojo.dto.AiEmbeddingRecordDto;
 import com.hw.pojo.dto.AiEmbeddingResultDto;
 import com.hw.pojo.entity.AiTask;
 import com.hw.pojo.entity.EmbeddingRecord;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestTemplate;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -70,6 +74,26 @@ class EmbeddingBackfillCallbackTest {
         verify(embeddingRecordMapper, never()).upsert(any());
     }
 
+    @Test
+    void saveEmbeddingResultLogsTerminalStatuses() {
+        when(aiTaskMapper.findById(31L)).thenReturn(task("EMBEDDING_BACKFILL"));
+        when(aiTaskMapper.countTaskPhoto(31L, 11L)).thenReturn(1);
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            service().saveEmbeddingResult(31L, successResult());
+            AiEmbeddingResultDto failed = new AiEmbeddingResultDto();
+            failed.setStatus("FAILED");
+            failed.setErrorMessage("vector store disabled");
+            service().saveEmbeddingResult(31L, failed);
+
+            String messages = messages(appender);
+            assertEquals(true, messages.contains("event=embedding_backfill.completed task_id=31 user_id=7 status=SUCCESS"));
+            assertEquals(true, messages.contains("event=embedding_backfill.failed task_id=31 user_id=7 status=FAILED"));
+        } finally {
+            detachAppender(appender);
+        }
+    }
+
     private EmbeddingBackfillServiceImpl service() {
         return new EmbeddingBackfillServiceImpl(userMapper, photosMapper, aiTaskMapper, restTemplate, embeddingRecordMapper);
     }
@@ -97,5 +121,23 @@ class EmbeddingBackfillCallbackTest {
         result.setStatus("SUCCESS");
         result.setRecords(List.of(record));
         return result;
+    }
+
+    private ListAppender<ILoggingEvent> attachAppender() {
+        Logger logger = (Logger) LoggerFactory.getLogger(EmbeddingBackfillServiceImpl.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        return appender;
+    }
+
+    private void detachAppender(ListAppender<ILoggingEvent> appender) {
+        Logger logger = (Logger) LoggerFactory.getLogger(EmbeddingBackfillServiceImpl.class);
+        logger.detachAppender(appender);
+        appender.stop();
+    }
+
+    private String messages(ListAppender<ILoggingEvent> appender) {
+        return appender.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (left, right) -> left + "\n" + right);
     }
 }

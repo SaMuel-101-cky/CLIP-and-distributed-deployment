@@ -47,10 +47,12 @@ public class AiTaskController {
                                  @RequestHeader(value = "X-AI-Callback-Token", required = false) String callbackToken) {
         try {
             validateCallbackToken(callbackToken);
+            log.info("event=embedding_backfill.callback_received task_id={} status={}", taskId, result.getStatus());
             embeddingBackfillService.saveEmbeddingResult(taskId, result);
             return Result.success();
         } catch (Exception e) {
-            log.error("保存 embedding 回调失败，taskId={}", taskId, e);
+            log.error("event=embedding_backfill.failed task_id={} status=FAILED error_type={}",
+                    taskId, e.getClass().getSimpleName());
             return Result.error(e.getMessage());
         }
     }

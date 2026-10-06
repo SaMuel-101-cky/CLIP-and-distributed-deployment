@@ -171,6 +171,8 @@ def receive_embedding_backfill_task():
     try:
         threading.Thread(target=func_embedding_backfill_process,
                          args=(data["taskId"], data, vector_store, logger)).start()
+        logger.info("event=embedding_backfill.accepted task_id=%s user_id=%s photo_count=%s",
+                    data["taskId"], data["userId"], len(data["photosId"]))
         return jsonify({"code": 1, "message": "embedding backfill task accepted"}), 200
     except Exception as error:
         logger.exception("Unable to start embedding backfill task")
