@@ -51,7 +51,7 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
     private String collectionName;
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = RuntimeException.class)
     public Map<String, Object> startBackfill(EmbeddingBackfillRequestDto request) {
         if (request == null || !StringUtils.hasText(request.getUsername())) {
             throw new IllegalArgumentException("username 不能为空");
