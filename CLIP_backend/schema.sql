@@ -7,6 +7,8 @@ USE photo_system;
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS embedding_records;
+DROP TABLE IF EXISTS benchmark_samples;
+DROP TABLE IF EXISTS benchmark_runs;
 DROP TABLE IF EXISTS photo_description_matches;
 DROP TABLE IF EXISTS ai_task_descriptions;
 DROP TABLE IF EXISTS ai_task_photos;
@@ -153,5 +155,33 @@ CREATE TABLE embedding_records (
   KEY idx_embedding_user_target (user_id, target_type, target_id),
   CONSTRAINT fk_embedding_user
     FOREIGN KEY (user_id) REFERENCES users (id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE benchmark_runs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  run_id VARCHAR(64) NOT NULL,
+  status ENUM('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED') NOT NULL,
+  resolved_plan_json JSON NOT NULL,
+  error_type VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_benchmark_runs_run_id (run_id),
+  KEY idx_benchmark_runs_status_created (status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE benchmark_samples (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  run_id VARCHAR(64) NOT NULL,
+  sequence_no INT UNSIGNED NOT NULL,
+  is_warmup BOOLEAN NOT NULL,
+  total_ms DECIMAL(12, 3) NULL,
+  success BOOLEAN NOT NULL,
+  error_type VARCHAR(64) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_benchmark_samples_run_sequence (run_id, sequence_no),
+  CONSTRAINT fk_benchmark_samples_run
+    FOREIGN KEY (run_id) REFERENCES benchmark_runs (run_id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
