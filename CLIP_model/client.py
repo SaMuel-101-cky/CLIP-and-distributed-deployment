@@ -14,7 +14,9 @@ from manager.ai_task_payload import (
     build_smoke_matches,
     build_task_result_payload,
 )
-from manager.backend_client import post_task_result
+from manager.backend_client import post_embedding_result, post_task_result
+from manager.embedding_backfill import run_embedding_backfill_task
+from manager.embedding_backfill_payload import validate_backfill_request
 from manager.vector_search import build_text_search_result_with_vector_store
 from manager.vector_store import ChromaVectorStore, VectorStoreConfig
 from utils.embedding import encode_images, encode_texts
@@ -150,6 +152,29 @@ def func1_process(
         logger.exception("[BackgroundTask] 分类任务处理失败: task_id=%s", task_id)
         payload = build_task_result_payload(task_id, "FAILED", [], str(e))
         post_task_result(task_id, payload, cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, logger=logger)
+
+
+def func_embedding_backfill_process(task_id, request_data, vector_store, logger):
+    return run_embedding_backfill_task(
+        task_id, request_data, vector_store, model, encode_images,
+        cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, post_embedding_result,
+        smoke_mode=cfg.CLIP_SMOKE_MODE, logger=logger,
+    )
+
+
+@app.route("/embeddings/backfill", methods=["POST"])
+def receive_embedding_backfill_task():
+    try:
+        data = validate_backfill_request(request.get_json(force=True))
+    except Exception as error:
+        return jsonify({"code": 0, "message": str(error)}), 400
+    try:
+        threading.Thread(target=func_embedding_backfill_process,
+                         args=(data["taskId"], data, vector_store, logger)).start()
+        return jsonify({"code": 1, "message": "embedding backfill task accepted"}), 200
+    except Exception as error:
+        logger.exception("Unable to start embedding backfill task")
+        return jsonify({"code": 0, "message": str(error)}), 500
 
 
 
