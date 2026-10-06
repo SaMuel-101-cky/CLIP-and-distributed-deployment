@@ -15,7 +15,7 @@ from manager.ai_task_payload import (
     build_task_result_payload,
 )
 from manager.backend_client import post_task_result
-from manager.vector_search import build_text_search_matches_with_vector_store
+from manager.vector_search import build_text_search_result_with_vector_store
 from manager.vector_store import ChromaVectorStore, VectorStoreConfig
 from utils.embedding import encode_images, encode_texts
 
@@ -212,7 +212,7 @@ def func2_process(
                 top_k=cfg.TEXT_SEARCH_TOP_K,
             )
         else:
-            matches = build_text_search_matches_with_vector_store(
+            search_result = build_text_search_result_with_vector_store(
                 vector_store=vector_store,
                 model=model,
                 user_id=user_id,
@@ -225,6 +225,25 @@ def func2_process(
                 encode_texts_fn=encode_texts,
                 predict_fn=predict,
             )
+            matches = search_result.matches
+            if search_result.source == "CHROMA":
+                logger.info(
+                    "[VectorStore] 文本搜图命中 Chroma: task_id=%s user_id=%s hits=%s matches=%s",
+                    task_id,
+                    user_id,
+                    search_result.vector_hit_count,
+                    len(matches),
+                )
+            else:
+                logger.info(
+                    "[VectorStore] 文本搜图使用 fallback: task_id=%s user_id=%s source=%s reason=%s vector_hits=%s matches=%s",
+                    task_id,
+                    user_id,
+                    search_result.source,
+                    search_result.fallback_reason,
+                    search_result.vector_hit_count,
+                    len(matches),
+                )
         payload = build_task_result_payload(task_id, "SUCCESS", matches)
         post_task_result(task_id, payload, cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, logger=logger)
     except Exception as e:

@@ -37,6 +37,77 @@ def fake_encode_texts(model, descriptions):
 
 
 class VectorSearchFlowTest(unittest.TestCase):
+    def test_vector_search_result_reports_chroma_source(self):
+        from manager.vector_search import build_text_search_result_with_vector_store
+
+        predictor = CountingPredictor()
+        vector_store = FakeVectorStore(hits=[VectorSearchHit(photo_id=12, score=0.91, rank_no=1)])
+
+        result = build_text_search_result_with_vector_store(
+            vector_store=vector_store,
+            model=object(),
+            user_id=7,
+            description="cat",
+            description_id=21,
+            photo_list=["a.png", "b.png"],
+            photo_id_list=[11, 12],
+            top_k=2,
+            fallback_enabled=True,
+            encode_texts_fn=fake_encode_texts,
+            predict_fn=predictor,
+        )
+
+        self.assertEqual("CHROMA", result.source)
+        self.assertIsNone(result.fallback_reason)
+        self.assertEqual(1, result.vector_hit_count)
+        self.assertEqual(0, predictor.calls)
+
+    def test_empty_vector_hits_result_reports_fallback_reason(self):
+        from manager.vector_search import build_text_search_result_with_vector_store
+
+        predictor = CountingPredictor()
+        result = build_text_search_result_with_vector_store(
+            vector_store=FakeVectorStore(hits=[]),
+            model=object(),
+            user_id=7,
+            description="cat",
+            description_id=21,
+            photo_list=["a.png", "b.png"],
+            photo_id_list=[11, 12],
+            top_k=1,
+            fallback_enabled=True,
+            encode_texts_fn=fake_encode_texts,
+            predict_fn=predictor,
+        )
+
+        self.assertEqual("BRUTE_FORCE", result.source)
+        self.assertEqual("vector_store_empty", result.fallback_reason)
+        self.assertEqual(0, result.vector_hit_count)
+        self.assertEqual(1, predictor.calls)
+        self.assertEqual(12, result.matches[0]["photoId"])
+
+    def test_vector_error_result_reports_fallback_reason(self):
+        from manager.vector_search import build_text_search_result_with_vector_store
+
+        predictor = CountingPredictor()
+        result = build_text_search_result_with_vector_store(
+            vector_store=FakeVectorStore(error=RuntimeError("chroma down")),
+            model=object(),
+            user_id=7,
+            description="cat",
+            description_id=21,
+            photo_list=["a.png", "b.png"],
+            photo_id_list=[11, 12],
+            top_k=1,
+            fallback_enabled=True,
+            encode_texts_fn=fake_encode_texts,
+            predict_fn=predictor,
+        )
+
+        self.assertEqual("BRUTE_FORCE", result.source)
+        self.assertEqual("vector_store_error:RuntimeError", result.fallback_reason)
+        self.assertEqual(1, predictor.calls)
+
     def test_vector_hits_skip_bruteforce_predictor(self):
         from manager.vector_search import build_text_search_matches_with_vector_store
 
