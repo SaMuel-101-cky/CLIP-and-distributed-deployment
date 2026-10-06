@@ -108,10 +108,13 @@ http://localhost:8080
 | `DELETE` | `/user/photos/{url}` | Soft-delete a photo |
 | `DELETE` | `/user/photos/bin/{url}` | Permanently delete from recycle bin |
 | `POST` | `/ai/tasks/{taskId}/matches` | Model callback for AI task results |
+| `POST` | `/user/embeddings/backfill` | Create an `EMBEDDING_BACKFILL` task for active photos |
+| `POST` | `/ai/tasks/{taskId}/embeddings` | Model callback that persists validated embedding metadata |
 
 ## Notes
 
 - Redis is not required in the current backend. If it is reintroduced, keep MySQL as the durable source of truth.
 - Use `taskId` in API contracts and code. Do not reintroduce the old `idNum` batch identifier.
 - Use HTTP between backend and model service. Do not add WebSocket transport unless explicitly requested.
+- `embedding_records` is durable metadata only; Chroma vectors are rebuildable through `/user/embeddings/backfill`.
 - See `D:\CLIP\docs\local-runbook.md` for local startup, GPU checks, and troubleshooting.

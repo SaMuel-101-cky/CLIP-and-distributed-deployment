@@ -24,7 +24,7 @@ Ownership boundary:
 
 - MySQL is owned by the Java backend.
 - Python must not write Java-owned business tables directly.
-- Python receives task payloads from Java and posts structured results back to `/ai/tasks/{taskId}/matches`.
+- Python receives task payloads from Java and posts structured match or embedding results back to `/ai/tasks/{taskId}/matches` or `/ai/tasks/{taskId}/embeddings`.
 - Redis is not currently required. If reintroduced, it should be cache/session/rate-limit/progress only, never the source of truth.
 
 ## Data Model
@@ -40,7 +40,7 @@ Core tables:
 - `ai_task_photos`: task-photo join table.
 - `ai_task_descriptions`: task-description join table.
 - `photo_description_matches`: AI match results with `score`, `rank_no`, and `match_type`.
-- `embedding_records`: relational metadata for future vector DB entries.
+- `embedding_records`: relational metadata for rebuildable vector DB entries.
 
 Important rules:
 
@@ -71,6 +71,8 @@ Model:
 - `CHROMA_COLLECTION`: Chroma image embedding collection, default `clip_image_embeddings`.
 - `EMBEDDING_MODEL_NAME`: vector id/metadata namespace, default `clip-vit-l-14`.
 - `VECTOR_SEARCH_FALLBACK`: fallback to brute-force CLIP scoring when Chroma is unavailable or empty, default `true`.
+
+Embedding backfill uses `POST /user/embeddings/backfill` → `POST /embeddings/backfill` → `POST /ai/tasks/{taskId}/embeddings`. In smoke mode Python must send a failed callback and must not create fake successful embedding records.
 
 See `docs/local-runbook.md` for exact local startup and smoke test commands.
 

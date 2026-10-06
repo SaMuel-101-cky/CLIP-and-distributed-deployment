@@ -190,6 +190,8 @@ cp .env.example .env
 
 Chroma 只保存可重建的向量索引；业务数据仍以 Java 后端的 MySQL 为准。`CLIP_SMOKE_MODE=true` 会跳过重模型推理和 Chroma 链路，仅用于验证后端/回调/数据库 plumbing。
 
+Embedding backfill 由 Java 调用 `POST /embeddings/backfill` 发起。模型服务只在真实 CLIP 模式下重建 Chroma 向量，并将 `READY` 元数据回写 `POST /ai/tasks/{taskId}/embeddings`；`CLIP_SMOKE_MODE=true` 会回写失败，绝不会伪造成功记录。
+
 **卸载开关（按需开启）：**
 
 | 变量 | 控制组件 | 对应 endpoint |
@@ -241,6 +243,7 @@ python client.py
 | `POST` | `/predict` | 图片分类 |
 | `POST` | `/upload` | 批量图片-描述匹配，并回写 Java 后端 |
 | `POST` | `/getPhotos` | 以文搜图，并回写 Java 后端 |
+| `POST` | `/embeddings/backfill` | 从 Java 提供的活跃图片路径重建 Chroma 向量并回写 embedding metadata |
 
 **`POST /predict` 请求体：**
 

@@ -39,6 +39,8 @@ Main tables:
 
 The model service should not connect to MySQL directly. Java persists task state and match results.
 
+`embedding_records` holds auditable Chroma vector metadata, not vector payloads. Chroma persistence is rebuildable: use embedding backfill to repopulate it from active photo metadata and local files.
+
 ## Backend Startup
 
 Build and test:
@@ -136,6 +138,15 @@ Text search:
 3. Backend sends active user photos and the query to model `POST /getPhotos`.
 4. Model posts ranked results to `POST /ai/tasks/{taskId}/matches`.
 5. Client reads result URLs through `GET /user/match/download?username=<name>&taskId=<id>`.
+
+Embedding backfill:
+
+1. Call `POST /user/embeddings/backfill` with `username` and optional `photoIds`.
+2. Java creates an `EMBEDDING_BACKFILL` task and posts active local paths to `POST /embeddings/backfill`.
+3. Python upserts real CLIP vectors into Chroma and calls `POST /ai/tasks/{taskId}/embeddings`.
+4. Java validates task-photo membership and upserts `embedding_records` metadata.
+
+`CLIP_SMOKE_MODE=true` returns a failed embedding callback; it never writes fake successful embedding records.
 
 ## Environment Variables
 
