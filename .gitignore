@@ -30,6 +30,7 @@ CLIP_model/chroma_data/
 .DS_Store
 Thumbs.db
 node_modules/
+*.tsbuildinfo
 
 #AI 工具
 CLAUDE.md
