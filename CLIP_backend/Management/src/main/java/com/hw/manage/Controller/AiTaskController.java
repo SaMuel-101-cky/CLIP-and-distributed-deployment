@@ -1,6 +1,8 @@
 package com.hw.manage.Controller;
 
 import com.hw.manage.Service.AiTaskService;
+import com.hw.manage.Service.EmbeddingBackfillService;
+import com.hw.pojo.dto.AiEmbeddingResultDto;
 import com.hw.pojo.dto.AiMatchResultDto;
 import com.hw.pojo.query.Result;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/ai/tasks")
 public class AiTaskController {
     private final AiTaskService aiTaskService;
+    private final EmbeddingBackfillService embeddingBackfillService;
 
     @Value("${ai.callback.token:}")
     private String aiCallbackToken;
@@ -34,6 +37,20 @@ public class AiTaskController {
             return Result.success();
         } catch (Exception e) {
             log.error("保存AI任务结果失败，taskId={}", taskId, e);
+            return Result.error(e.getMessage());
+        }
+    }
+
+    @PostMapping("/{taskId}/embeddings")
+    public Result saveEmbeddings(@PathVariable Long taskId,
+                                 @RequestBody AiEmbeddingResultDto result,
+                                 @RequestHeader(value = "X-AI-Callback-Token", required = false) String callbackToken) {
+        try {
+            validateCallbackToken(callbackToken);
+            embeddingBackfillService.saveEmbeddingResult(taskId, result);
+            return Result.success();
+        } catch (Exception e) {
+            log.error("保存 embedding 回调失败，taskId={}", taskId, e);
             return Result.error(e.getMessage());
         }
     }

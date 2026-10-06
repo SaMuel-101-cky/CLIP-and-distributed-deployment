@@ -1,12 +1,16 @@
 package com.hw.manage.Service.impl;
 
 import com.hw.manage.Mapper.AiTaskMapper;
+import com.hw.manage.Mapper.EmbeddingRecordMapper;
 import com.hw.manage.Mapper.PhotosMapper;
 import com.hw.manage.Mapper.UserMapper;
 import com.hw.manage.Service.EmbeddingBackfillService;
 import com.hw.pojo.dto.AiEmbeddingBackfillDto;
+import com.hw.pojo.dto.AiEmbeddingRecordDto;
+import com.hw.pojo.dto.AiEmbeddingResultDto;
 import com.hw.pojo.dto.EmbeddingBackfillRequestDto;
 import com.hw.pojo.entity.AiTask;
+import com.hw.pojo.entity.EmbeddingRecord;
 import com.hw.pojo.entity.Photos;
 import com.hw.pojo.entity.User;
 import com.hw.pojo.query.Result;
@@ -32,6 +36,7 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
     private final PhotosMapper photosMapper;
     private final AiTaskMapper aiTaskMapper;
     private final RestTemplate restTemplate;
+    private final EmbeddingRecordMapper embeddingRecordMapper;
 
     @Value("${ai.service.base-url:http://localhost:5000}")
     private String aiServiceBaseUrl;
@@ -116,5 +121,66 @@ public class EmbeddingBackfillServiceImpl implements EmbeddingBackfillService {
             throw new IllegalArgumentException("请求图片包含无效、已删除或不属于该用户的图片");
         }
         return photos;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void saveEmbeddingResult(Long taskId, AiEmbeddingResultDto result) {
+        if (result == null) {
+            throw new IllegalArgumentException("embedding 回调不能为空");
+        }
+        if (result.getTaskId() != null && !taskId.equals(result.getTaskId())) {
+            throw new IllegalArgumentException("路径 taskId 与请求体 taskId 不一致");
+        }
+
+        AiTask task = aiTaskMapper.findById(taskId);
+        if (task == null) {
+            throw new IllegalArgumentException("AI任务不存在: " + taskId);
+        }
+        if (!"EMBEDDING_BACKFILL".equals(task.getTaskType())) {
+            throw new IllegalArgumentException("AI任务类型不是 EMBEDDING_BACKFILL");
+        }
+        if ("FAILED".equalsIgnoreCase(result.getStatus())) {
+            aiTaskMapper.updateStatus(taskId, "FAILED", result.getErrorMessage());
+            return;
+        }
+        if (!"SUCCESS".equalsIgnoreCase(result.getStatus())) {
+            throw new IllegalArgumentException("embedding 回调状态无效");
+        }
+        if (CollectionUtils.isEmpty(result.getRecords())) {
+            throw new IllegalArgumentException("SUCCESS embedding 回调 records 不能为空");
+        }
+
+        for (AiEmbeddingRecordDto record : result.getRecords()) {
+            validateEmbeddingRecord(task, record);
+            EmbeddingRecord entity = new EmbeddingRecord();
+            entity.setUserId(task.getUserId());
+            entity.setTargetType(record.getTargetType());
+            entity.setTargetId(record.getPhotoId());
+            entity.setEmbeddingModel(record.getEmbeddingModel());
+            entity.setVectorDb(record.getVectorDb());
+            entity.setCollectionName(record.getCollectionName());
+            entity.setVectorId(record.getVectorId());
+            entity.setDim(record.getDim());
+            entity.setStatus(record.getStatus());
+            embeddingRecordMapper.upsert(entity);
+        }
+        aiTaskMapper.updateStatus(taskId, "SUCCESS", null);
+    }
+
+    private void validateEmbeddingRecord(AiTask task, AiEmbeddingRecordDto record) {
+        if (record == null || record.getPhotoId() == null || record.getDim() == null
+                || !"PHOTO".equals(record.getTargetType())
+                || !StringUtils.hasText(record.getEmbeddingModel())
+                || !StringUtils.hasText(record.getVectorDb())
+                || !StringUtils.hasText(record.getCollectionName())
+                || !StringUtils.hasText(record.getVectorId())
+                || !StringUtils.hasText(record.getStatus())) {
+            throw new IllegalArgumentException("embedding 记录字段不完整或 targetType 无效");
+        }
+        Integer count = aiTaskMapper.countTaskPhoto(task.getId(), record.getPhotoId());
+        if (count == null || count == 0) {
+            throw new IllegalArgumentException("图片不属于该AI任务: " + record.getPhotoId());
+        }
     }
 }

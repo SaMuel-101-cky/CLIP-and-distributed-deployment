@@ -1,6 +1,7 @@
 package com.hw.manage.Service.impl;
 
 import com.hw.manage.Mapper.AiTaskMapper;
+import com.hw.manage.Mapper.EmbeddingRecordMapper;
 import com.hw.manage.Mapper.PhotosMapper;
 import com.hw.manage.Mapper.UserMapper;
 import com.hw.pojo.dto.AiEmbeddingBackfillDto;
@@ -42,6 +43,8 @@ class EmbeddingBackfillServiceImplTest {
     private PhotosMapper photosMapper;
     @Mock
     private AiTaskMapper aiTaskMapper;
+    @Mock
+    private EmbeddingRecordMapper embeddingRecordMapper;
     @Mock
     private RestTemplate restTemplate;
 
@@ -107,7 +110,7 @@ class EmbeddingBackfillServiceImplTest {
 
     private EmbeddingBackfillServiceImpl service() {
         EmbeddingBackfillServiceImpl service = new EmbeddingBackfillServiceImpl(
-                userMapper, photosMapper, aiTaskMapper, restTemplate);
+                userMapper, photosMapper, aiTaskMapper, restTemplate, embeddingRecordMapper);
         ReflectionTestUtils.setField(service, "aiServiceBaseUrl", "http://localhost:5000");
         ReflectionTestUtils.setField(service, "embeddingModel", "clip-vit-l-14");
         ReflectionTestUtils.setField(service, "vectorDb", "chroma");
