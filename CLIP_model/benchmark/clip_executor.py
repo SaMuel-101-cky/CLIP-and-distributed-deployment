@@ -3,6 +3,8 @@ from time import perf_counter
 import sys
 import threading
 
+import torch
+
 
 class ClipSampleExecutor:
     """Runs a sample against the already-loaded client model when available."""
@@ -27,13 +29,14 @@ class ClipSampleExecutor:
         started = perf_counter()
         try:
             if self.factory:
-                self.factory(plan, remote_host)(image_paths, queries)
+                logits_per_image, _ = self.factory(plan, remote_host)(image_paths, queries)
             else:
-                self._run_with_client_model(plan, image_paths, queries, remote_host)
+                logits_per_image, _ = self._run_with_client_model(plan, image_paths, queries, remote_host)
             return {
                 "success": True,
                 "total_ms": (perf_counter() - started) * 1000,
                 "image_paths": list(image_paths),
+                "matches": self._build_match_results(logits_per_image, image_paths, queries),
             }
         except (FileNotFoundError, ValueError):
             return {"success": False, "total_ms": (perf_counter() - started) * 1000, "error_type": "INVALID_INPUT"}
@@ -51,10 +54,31 @@ class ClipSampleExecutor:
             try:
                 self.offloader.server_ip = remote_host or self.default_remote_host
                 self.offloader.config = dict(plan.offload)
-                self.predict_fn(self.model, image_paths, queries)
+                return self.predict_fn(self.model, image_paths, queries)
             finally:
                 self.offloader.server_ip = original_host
                 self.offloader.config = original_config
+
+    @staticmethod
+    def _build_match_results(logits_per_image, image_paths, queries):
+        scores = logits_per_image.detach().to(torch.float32).cpu()
+        probabilities = torch.softmax(scores, dim=-1)
+        results = []
+        for image_index, image_path in enumerate(image_paths):
+            order = sorted(range(len(queries)), key=lambda index: float(scores[image_index, index]), reverse=True)
+            results.append({
+                "imageName": Path(image_path).name,
+                "matches": [
+                    {
+                        "query": queries[query_index],
+                        "score": round(float(scores[image_index, query_index]), 4),
+                        "probability": round(float(probabilities[image_index, query_index] * 100), 2),
+                        "rank": rank,
+                    }
+                    for rank, query_index in enumerate(order, start=1)
+                ],
+            })
+        return results
 
     def _build_real_callable(self, plan, remote_host=None):
         model_root = Path(__file__).resolve().parents[1]

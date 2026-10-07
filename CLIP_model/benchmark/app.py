@@ -4,11 +4,14 @@ import threading
 import uuid
 from pathlib import Path
 
-from flask import Blueprint, Flask, Response, jsonify, request
+from flask import Blueprint, Flask, Response, jsonify, request, send_from_directory
 
 from .aggregation import summarize
 from .clip_executor import ClipSampleExecutor
 from .execution_plan import ExecutionPlan
+
+
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
 def create_benchmark_blueprint(sample_executor=None, persistence_client=None, image_directory=None):
@@ -27,9 +30,12 @@ def create_benchmark_blueprint(sample_executor=None, persistence_client=None, im
             if run["cancel_requested"]:
                 run["status"] = "CANCELLED"
                 break
-            outcome = sample_executor(plan, run["imagePaths"], run["queries"], run["remoteHost"])
+            outcome = dict(sample_executor(plan, run["imagePaths"], run["queries"], run["remoteHost"]))
+            matches = outcome.pop("matches", [])
             sample = {"sequence_no": index + 1, "warmup": index < plan.warmup_runs, **outcome}
             run["samples"].append(sample)
+            if not sample["warmup"] and sample["success"] and not run["results"]:
+                run["results"] = matches
             if persistence_client:
                 persistence_client.record_sample(run_id, sample)
         else:
@@ -47,12 +53,22 @@ def create_benchmark_blueprint(sample_executor=None, persistence_client=None, im
     @benchmark.get("/api/images")
     def images():
         image_directory.mkdir(parents=True, exist_ok=True)
-        allowed = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
         return jsonify({"images": [
             {"name": path.name}
             for path in sorted(image_directory.iterdir())
-            if path.is_file() and path.suffix.lower() in allowed
+            if path.is_file() and path.suffix.lower() in ALLOWED_IMAGE_EXTENSIONS
         ]})
+
+    @benchmark.get("/api/images/<path:image_name>")
+    def image_file(image_name):
+        candidate = (image_directory / image_name).resolve()
+        if (
+            candidate.parent != image_directory
+            or candidate.suffix.lower() not in ALLOWED_IMAGE_EXTENSIONS
+            or not candidate.is_file()
+        ):
+            return jsonify({"error": "not_found"}), 404
+        return send_from_directory(image_directory, candidate.name)
 
     @benchmark.post("/api/experiments")
     def create():
@@ -92,6 +108,7 @@ def create_benchmark_blueprint(sample_executor=None, persistence_client=None, im
             "remoteHost": remote_host,
             "samples": [],
             "summary": {},
+            "results": [],
             "cancel_requested": False,
         }
         if persistence_client:
@@ -120,6 +137,7 @@ def create_benchmark_blueprint(sample_executor=None, persistence_client=None, im
             "status": run["status"],
             "sampleCount": len(run["samples"]),
             "summary": run["summary"],
+            "results": run["results"],
         })
 
     @benchmark.post("/api/experiments/<run_id>/cancel")
@@ -139,6 +157,7 @@ def create_benchmark_blueprint(sample_executor=None, persistence_client=None, im
             "status": run["status"],
             "samples": run["samples"],
             "summary": run["summary"],
+            "results": run["results"],
         })
 
     @benchmark.get("/api/experiments/<run_id>/export.csv")
