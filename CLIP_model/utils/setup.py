@@ -2,9 +2,84 @@ import os
 import socket
 import logging
 import sys
+import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from uuid import uuid4
 import torch
 from utils import config
+
+
+_inference_log_path = ContextVar("inference_log_path", default=None)
+
+
+class _InferenceFileHandler(logging.Handler):
+    """Route records to the log file attached to the current inference context."""
+
+    def __init__(self):
+        super().__init__(logging.INFO)
+        self._handlers = {}
+        self._handlers_lock = threading.RLock()
+
+    def emit(self, record):
+        log_path = _inference_log_path.get()
+        if log_path is None:
+            return
+
+        with self._handlers_lock:
+            handler = self._handlers.get(log_path)
+            if handler is None:
+                handler = RotatingFileHandler(
+                    log_path,
+                    maxBytes=10 * 1024 * 1024,
+                    backupCount=5,
+                    encoding="utf-8",
+                )
+                handler.setFormatter(self.formatter)
+                handler.setLevel(self.level)
+                self._handlers[log_path] = handler
+            handler.emit(record)
+
+    def close_log(self, log_path):
+        with self._handlers_lock:
+            handler = self._handlers.pop(log_path, None)
+            if handler is not None:
+                handler.close()
+
+    def close(self):
+        with self._handlers_lock:
+            for handler in self._handlers.values():
+                handler.close()
+            self._handlers.clear()
+        super().close()
+
+
+def _log_directory(caller_file_path):
+    return Path(caller_file_path).resolve().parent / "logs"
+
+
+@contextmanager
+def inference_log_context(logger, caller_file_path, *, now=None, inference_id=None):
+    """Write all logger records in this context to one unique inference log."""
+    timestamp = now or datetime.now()
+    run_id = inference_id or uuid4().hex
+    log_dir = _log_directory(caller_file_path)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{timestamp:%Y_%m_%d}_{run_id}.log"
+    token = _inference_log_path.set(str(log_path))
+
+    logger.info("event=inference.started inference_id=%s", run_id)
+    try:
+        yield log_path
+    finally:
+        logger.info("event=inference.completed inference_id=%s", run_id)
+        for handler in logger.handlers:
+            if isinstance(handler, _InferenceFileHandler):
+                handler.close_log(str(log_path))
+        _inference_log_path.reset(token)
 
 
 #获取设备和 IP 信息
@@ -27,42 +102,17 @@ def configure_logger(logger, caller_file_path, log_filename=None, propagate=True
     参数:
         logger: Logger对象
         caller_file_path: 调用者的路径 (__file__)
-        log_filename: 指定日志文件名 (如 'server.log')，如果不传则自动根据 caller_file_path 生成
+        log_filename: 保留以兼容现有调用；推理日志始终按日期和推理 ID 命名
         propagate: 是否允许向上传播。
                    建议：如果想看控制台日志，要么设为 True，要么在该函数内手动添加 StreamHandler。
     """
-    # 1. 智能确定日志文件名
-    base_dir = os.path.dirname(os.path.abspath(caller_file_path))
-    log_dir = os.path.join(base_dir, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-
-    if log_filename is None:
-        # 自动根据调用文件的名字生成，例如 server.py -> server.log
-        filename = os.path.splitext(os.path.basename(caller_file_path))[0]
-        log_filename = f"{filename}.log"
-
-    log_file_path = os.path.join(log_dir, log_filename)
-
-    # 定义统一的格式
+    # 1. 定义统一的格式
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 
-    # 2. 添加 FileHandler (防止重复添加)
-    # 检查是否已经有了写向 [同一路径] 的 Handler，比只检查类型更安全
-    has_target_handler = False
-    for h in logger.handlers:
-        if isinstance(h, RotatingFileHandler) and h.baseFilename == log_file_path:
-            has_target_handler = True
-            break
-
-    if not has_target_handler:
-        file_handler = RotatingFileHandler(
-            log_file_path,
-            maxBytes=10 * 1024 * 1024,  # 10MB
-            backupCount=5,
-            encoding='utf-8'
-        )
+    # 2. 添加按推理上下文路由的 FileHandler（防止重复添加）
+    if not any(isinstance(handler, _InferenceFileHandler) for handler in logger.handlers):
+        file_handler = _InferenceFileHandler()
         file_handler.setFormatter(formatter)
-        file_handler.setLevel(logging.INFO)
         logger.addHandler(file_handler)
 
     # 3. 确保控制台有输出 (如果禁止了传播，或者 Logger 本身没有 StreamHandler)

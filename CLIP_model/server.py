@@ -3,13 +3,13 @@ import time
 import sys
 
 import logging
-from flask import Flask, request, jsonify
+from flask import Flask, g, request, jsonify
 import torch
 import base64
 import io
 from model.clip_loader import build_model
 from utils import config
-from utils.setup import get_device_and_ip,configure_logger
+from utils.setup import get_device_and_ip, configure_logger, inference_log_context
 from utils.pred import predict
 from utils import config as cfg
 
@@ -34,6 +34,24 @@ DEVICE, local_ip, server_ip = get_device_and_ip()
 
 logger = logging.getLogger('server')
 logger = configure_logger(logger, __file__, propagate=False)
+
+
+@app.before_request
+def start_inference_log():
+    if request.endpoint == "health_check":
+        return None
+    log_context = inference_log_context(logger, __file__)
+    log_context.__enter__()
+    g.inference_log_context = log_context
+    logger.info("event=inference.type type=%s", request.endpoint)
+    return None
+
+
+@app.teardown_request
+def finish_inference_log(error=None):
+    log_context = g.pop("inference_log_context", None)
+    if log_context is not None:
+        log_context.__exit__(type(error) if error else None, error, error.__traceback__ if error else None)
 
 # 1. 加载完整模型 (不传 handler，即纯本地)
 state_dict = torch.jit.load('ViT-L-14.pt', map_location='cpu').state_dict()
@@ -312,7 +330,7 @@ def visual_projection():
     x = tensor_dict['x'].to(DEVICE)  # 输入的张量
 
     output = run_timed_inference(
-        tag="vis_projection",
+        tag="visual_projection",
         local_ip=local_ip,
         server_ip=server_ip,
         one_way_ms=one_way_ms*1000,

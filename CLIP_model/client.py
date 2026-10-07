@@ -2,11 +2,12 @@ import sys
 
 import logging
 import threading
+from functools import wraps
 from flask import Flask, request, jsonify
 import torch
 from utils.offloader import OffloadHandler
 from model.clip_loader import build_model
-from utils.setup import get_device_and_ip,configure_logger
+from utils.setup import get_device_and_ip, configure_logger, inference_log_context
 from utils.pred import predict
 from utils import config as cfg
 from manager.ai_task_payload import (
@@ -100,6 +101,19 @@ register_benchmark_routes(
 
 print("模型加载完成")
 
+
+def with_inference_log(inference_type):
+    """Give every request/task inference its own log file."""
+    def decorator(function):
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            with inference_log_context(logger, __file__):
+                logger.info("event=inference.type type=%s", inference_type)
+                return function(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
 @app.route('/health', methods=['GET'])            #客户端测试服务器健康状态的接口
 def health_check():
     return jsonify({
@@ -108,6 +122,7 @@ def health_check():
     })
 
 @app.route("/predict", methods=["POST"])
+@with_inference_log("predict")
 def predict_():
     data = request.get_json(force=True)
 
@@ -140,6 +155,7 @@ def predict_():
 
     return jsonify({"results": predictions})
 
+@with_inference_log("category")
 def func1_process(
     task_id,
     user_id,
@@ -172,6 +188,7 @@ def func1_process(
         post_task_result(task_id, payload, cfg.BACKEND_BASE_URL, cfg.AI_CALLBACK_TOKEN, logger=logger)
 
 
+@with_inference_log("embedding_backfill")
 def func_embedding_backfill_process(task_id, request_data, vector_store, logger):
     with model_execution_lock:
         return run_embedding_backfill_task(
@@ -239,6 +256,7 @@ def receive_category_task():
         return jsonify({"code": 0, "message": f"启动后台任务失败：{str(e)}"}), 500
 
 
+@with_inference_log("text_search")
 def func2_process(
         task_id,
         user_id,

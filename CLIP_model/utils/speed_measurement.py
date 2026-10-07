@@ -1,6 +1,8 @@
 import time
 import torch
 
+_SECTION_START_TAGS = {"encoder_blocks", "visual_projection", "text_projection"}
+
 
 def run_timed_inference(
     tag: str,
@@ -51,6 +53,9 @@ def run_timed_inference(
 
     t_end = time.perf_counter()
     infer_ms = (t_end - t_start) * 1000.0
+
+    if tag in _SECTION_START_TAGS:
+        logger.info("\n")
 
     if local_ip:
         # 服务端完整日志格式
